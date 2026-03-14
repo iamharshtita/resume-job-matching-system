@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Data Files (keep structure, ignore large data)
+data/raw/**/*.pdf
+data/raw/**/*.docx
+data/raw/**/*.txt
+data/raw/**/*.csv
+data/interim/**/*.parquet
+data/interim/**/*.pkl
+data/processed/**/*.parquet
+data/evaluation/**/*.csv
+
+# Keep .gitkeep files
+!**/.gitkeep
+
+# Embeddings and Models
+*.pt
+*.pth
+*.bin
+*.h5
+*.onnx
+data/interim/embeddings/*.npy
+data/interim/embeddings/*.pkl
+
+# Outputs
+outputs/logs/*.log
+outputs/results/*.json
+outputs/results/*.csv
+outputs/explanations/*.txt
+outputs/visualizations/*.png
+outputs/visualizations/*.pdf
+
+# FAISS Index
+*.index
+*.faiss
+
+# Logs
+*.log
+logs/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# API Keys and Secrets
+*secret*
+*credential*
+*.key
