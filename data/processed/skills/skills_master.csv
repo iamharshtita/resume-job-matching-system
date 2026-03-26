@@ -1,0 +1,52 @@
+canonical_skill,aliases,category
+python,python|py,programming
+java,java,programming
+javascript,javascript|js,programming
+sql,sql|mysql|postgresql,database
+machine learning,machine learning|ml,ai
+deep learning,deep learning|dl,ai
+data science,data science,ai
+natural language processing,natural language processing|nlp,ai
+pandas,pandas,library
+numpy,numpy,library
+scikit-learn,scikit-learn|sklearn,library
+tensorflow,tensorflow,library
+pytorch,pytorch,library
+react,react|reactjs,frontend
+html,html|html5,frontend
+css,css|css3,frontend
+node.js,node.js|nodejs|node,backend
+django,django,backend
+flask,flask,backend
+aws,aws|amazon web services,cloud
+azure,azure,cloud
+docker,docker,devops
+kubernetes,kubernetes|k8s,devops
+git,git,tools
+linux,linux,tools
+jira,jira|atlassian jira,tools
+excel,microsoft excel|excel,office
+tableau,tableau,analytics
+power bi,power bi|powerbi,analytics
+project management,project management,project_management
+agile,agile,project_management
+scrum,scrum,project_management
+accounting,accounting,finance
+financial analysis,financial analysis,finance
+human resources,human resources|hr,hr
+recruitment,recruitment|talent acquisition,hr
+onboarding,onboarding,hr
+customer service,customer service,customer_support
+technical support,technical support,customer_support
+troubleshooting,troubleshooting,customer_support
+autocad,autocad,engineering
+patient care,patient care,healthcare
+clinical research,clinical research,healthcare
+seo,seo|search engine optimization,marketing
+digital marketing,digital marketing,marketing
+google analytics,google analytics,marketing
+logistics,logistics,supply_chain
+communication,communication,soft_skills
+leadership,leadership,soft_skills
+teamwork,teamwork,soft_skills
+problem solving,problem solving,soft_skills
