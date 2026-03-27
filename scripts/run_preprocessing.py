@@ -1,8 +1,7 @@
 """
 Combined preprocessing script:
 1. Resume preprocessing
-2. O*NET/base skills preprocessing
-3. New skill candidate mining from resumes
+2. It also skill candidate mining from resumes
 """
 import sys
 import re
