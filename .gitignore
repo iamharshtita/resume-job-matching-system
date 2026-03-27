@@ -51,6 +51,7 @@ data/raw/**/*.txt
 data/raw/**/*.csv
 data/interim/**/*.parquet
 data/interim/**/*.pkl
+data/processed/skills/*
 data/processed/**/*.parquet
 data/evaluation/**/*.csv
 
