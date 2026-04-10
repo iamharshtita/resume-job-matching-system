@@ -21,6 +21,9 @@ pandas==2.1.4
 numpy==1.26.3
 pyarrow==14.0.2
 
+# Hugging face dataset
+datasets>=2.18
+
 # Machine Learning
 scikit-learn==1.4.0
 scipy==1.12.0
@@ -35,6 +38,7 @@ openai==1.6.1
 # Utilities
 loguru==0.7.2
 tqdm==4.66.1
+python-dateutil>=2.9
 
 # Development
 jupyter==1.0.0

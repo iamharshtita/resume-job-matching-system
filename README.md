@@ -55,15 +55,12 @@ resume-job-matching-system/
 git clone https://github.com/yourusername/resume-job-matching-system.git
 cd resume-job-matching-system
 
-# Create virtual environment
+# Create and activate virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Download spaCy model
-python -m spacy download en_core_web_sm
+# Run setup (installs deps, downloads spaCy model, registers src/, downloads datasets)
+python setup_env.py
 
 # Set up environment variables
 cp .env.example .env
@@ -73,14 +70,11 @@ cp .env.example .env
 ### Quick Start
 
 ```bash
-# Run preprocessing
-python scripts/run_preprocessing.py
-
-# Run full pipeline
+# Verify everything works
 python scripts/run_full_pipeline.py
 
-# Run experiments
-python scripts/run_experiments.py
+# Run preprocessing (parse resumes + JDs)
+python scripts/run_preprocessing.py
 ```
 
 ## Usage

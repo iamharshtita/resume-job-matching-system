@@ -44,18 +44,9 @@ ENV/
 .env.local
 .env.*.local
 
-# Data Files (keep structure, ignore large data)
-data/raw/**/*.pdf
-data/raw/**/*.docx
-data/raw/**/*.txt
-data/raw/**/*.csv
-data/interim/**/*.parquet
-data/interim/**/*.pkl
-data/processed/**/*.parquet
-data/evaluation/**/*.csv
-
-# Keep .gitkeep files
-!**/.gitkeep
+# Data Files (keep structure, ignore all data)
+data/**
+!data/**/.gitkeep
 
 # Embeddings and Models
 *.pt
@@ -63,8 +54,6 @@ data/evaluation/**/*.csv
 *.bin
 *.h5
 *.onnx
-data/interim/embeddings/*.npy
-data/interim/embeddings/*.pkl
 
 # Outputs
 outputs/logs/*.log

@@ -11,12 +11,37 @@ load_dotenv()
 # Project Root
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# Data Paths
+# Data configs
 DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-INTERIM_DATA_DIR = DATA_DIR / "interim"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
-EVALUATION_DATA_DIR = DATA_DIR / "evaluation"
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
+TAXONOMY_DIR = DATA_DIR / "taxonomy"
+
+RESUMES_RAW = RAW_DIR / "resumes.parquet"
+JDS_RAW = RAW_DIR / "jds.parquet"
+
+# HuggingFace dataset config
+HF_RESUMES_DATASET = os.getenv("HF_RESUMES_DATASET", "lang-uk/recruitment-dataset-candidate-profiles-english")
+HF_JDS_DATASET = os.getenv("HF_JDS_DATASET", "lang-uk/recruitment-dataset-job-descriptions-english")
+HF_RESUMES_PARQUET = os.getenv("HF_PARQUET", "data/train-00000-of-00001.parquet")
+HF_JDS_PARQUET = os.getenv("HF_PARQUET", "data/train-00000-of-00001.parquet")
+
+# Skill mapping file path
+SKILLS_TAXONOMY_FILE = TAXONOMY_DIR / "skills_master.csv"
+
+# Score parameters
+WEIGHTS = {
+    "skill": 0.4,
+    "experience": 0.3,
+    "education": 0.2,
+    "title": 0.1,
+}
+SKILL_WEIGHTS = {
+    "required": 0.7,
+    "preferred": 0.3,
+}
+EXPLICIT_SKILL_CONFIDENCE = 1.0
+LATENT_SKILL_CONFIDENCE = 0.75
 
 # Output Paths
 OUTPUT_DIR = PROJECT_ROOT / "outputs"

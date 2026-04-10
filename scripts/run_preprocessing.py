@@ -1,27 +1,26 @@
 """
-Script to run data preprocessing pipeline
+Runs the full preprocessing pipeline:
+  1. Parse resumes  → data/processed/resumes_parsed.parquet
+  2. Parse JDs      → data/processed/jds_parsed.parquet
+
+Run individual scripts instead if you only need one:
+  python scripts/parse_resumes.py
+  python scripts/parse_jds.py
 """
-import sys
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from loguru import logger
-from config import RAW_DATA_DIR, PROCESSED_DATA_DIR
-
+import parse_resumes
+import parse_jds
 
 def main():
-    """Run the preprocessing pipeline."""
-    logger.info("Starting data preprocessing...")
+    logger.info("Starting preprocessing pipeline...")
 
-    # TODO: Implement preprocessing steps
-    # 1. Load raw resumes and job postings
-    # 2. Clean and normalize text
-    # 3. Extract metadata
-    # 4. Save processed data
+    logger.info("Step 1/2: Parsing resumes")
+    parse_resumes.main()
 
-    logger.info("Preprocessing complete!")
+    logger.info("Step 2/2: Parsing job descriptions")
+    parse_jds.main()
+
+    logger.info("Preprocessing complete.")
 
 
 if __name__ == "__main__":
