@@ -7,12 +7,12 @@ from tqdm import tqdm
 from agents.resume_parser import ResumeParserAgent
 from config import RESUMES_RAW, PROCESSED_DIR
 
-SAMPLE_SIZE = 2000
 def main():
     print(f"Loading resumes...")
     df = pd.read_parquet(RESUMES_RAW)
-    sample = df.head(SAMPLE_SIZE).reset_index(drop=True)
-    print(f"Processing {len(sample)} resumes...")
+    # Filter for positions containing "developer" (case-insensitive)
+    sample = df[df['Position'].str.contains('developer', case=False, na=False)].reset_index(drop=True)
+    print(f"Processing {len(sample)} resumes (filtered for developer positions)...")
 
     agent = ResumeParserAgent()
     results = []
