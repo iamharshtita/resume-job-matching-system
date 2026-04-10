@@ -1,11 +1,8 @@
 """
 One-time environment setup script.
 
-Run this once after cloning and activating virtual environment:
-    python setup_env.py
+Run this python setup_env.py
 """
-import os
-import shutil
 import subprocess
 import sys
 import site
@@ -43,25 +40,8 @@ def download_spacy_model():
     subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
 
 def download_data():
-    from huggingface_hub import hf_hub_download
-
-    hf_parquet = os.getenv("HF_PARQUET", "data/train-00000-of-00001.parquet")
-    datasets = [
-        (os.getenv("HF_RESUMES_DATASET", "lang-uk/recruitment-dataset-candidate-profiles-english"),
-         ROOT / "data" / "raw" / "resumes.parquet"),
-        (os.getenv("HF_JDS_DATASET", "lang-uk/recruitment-dataset-job-descriptions-english"),
-         ROOT / "data" / "raw" / "jds.parquet"),
-    ]
-    for repo_id, dest in datasets:
-        print(f"\nDownloading {dest.name} from {repo_id}...")
-        path = hf_hub_download(
-            repo_id=repo_id,
-            filename=hf_parquet,
-            repo_type="dataset",
-            local_dir="/tmp/hf_download",
-        )
-        shutil.copy(path, dest)
-        print(f"  Saved to {dest.relative_to(ROOT)}")
+    print("\nDownloading datasets...")
+    subprocess.check_call([sys.executable, str(ROOT / "scripts" / "download_data.py")])
 
 def register_src():
     src_path = ROOT / "src"

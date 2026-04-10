@@ -19,9 +19,6 @@ class EducationBlock(BaseModel):
 
 class ParsedResume(BaseModel):
     id: Optional[str]
-    name: Optional[str]
-    email: Optional[str]
-    phone: Optional[str]
     position: Optional[str]
     experience_years: Optional[float]
     raw_skills: list[str]

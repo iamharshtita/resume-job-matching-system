@@ -11,7 +11,6 @@ from loguru import logger
 import parse_resumes
 import parse_jds
 
-
 def main():
     logger.info("Starting preprocessing pipeline...")
 

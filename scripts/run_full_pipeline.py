@@ -1,5 +1,6 @@
 """
 Runs the full pipeline on a sample resume + JD pair.
+This is for development purpose to check against sample data
 """
 import json
 from loguru import logger

@@ -3,6 +3,7 @@ JD Parser Agent
 Parses a raw JD into structured fields.
 """
 import re
+from typing import Optional
 from .base_agent import BaseAgent
 from schemas.models import ParsedJD
 
@@ -14,8 +15,9 @@ _REQUIRED_HEADERS = re.compile(
 )
 
 _PREFERRED_HEADERS = re.compile(
-    r"^\*{0,2}\s*(nice[ -]to[ -]have|preferred|bonus|would be (a )?plus"
-    r"|advantageous|optional|good to have|desirable|would be nice)\s*[:\*]*\s*$",
+    r"^\*{0,2}\s*(nice[ -]to[ -]have|preferred|bonus|w(?:ould|ill) be (a )?plus"
+    r"|advantageous|optional|good to have|desirable|would be nice"
+    r"|plus(?:es)?|additional|nice\s+to\s+have)\s*[:\*]*\s*$",
     re.IGNORECASE,
 )
 
@@ -42,6 +44,14 @@ _SKILL_HEADER = re.compile(
 
 # Experience years.
 _EXP_YEARS = re.compile(r"(\d+)", )
+
+# Education requirement
+_EDU_DEGREE = re.compile(
+    r"\b(b\.?sc?\.?|m\.?sc?\.?|ph\.?d\.?|mba|bachelor(?:'?s)?|master(?:'?s)?"
+    r"|degree|diploma|certificate|university|college|computer\s*science"
+    r"|related\s+field)\b",
+    re.IGNORECASE,
+)
 
 # Tech stack token
 _TECH_TOKEN = re.compile(r"^[A-Za-z#\.\+][A-Za-z0-9#\.\+\-]{0,28}$")
@@ -133,6 +143,16 @@ def _extract_skills_from_lines(lines: list[str]) -> list[str]:
     return sorted(skills)
 
 
+def _extract_education_requirement(text: str) -> Optional[str]:
+    """Return the first line that mentions an education requirement."""
+    for line in text.splitlines():
+        if _EDU_DEGREE.search(line):
+            stripped = line.strip().lstrip("-*•· ").strip()
+            if stripped and len(stripped) < 200:
+                return stripped
+    return None
+
+
 def _parse_exp_years(exp_str: str):
     """
     Convert Exp Years string to an integer.
@@ -195,6 +215,7 @@ class JDParserAgent(BaseAgent):
         preferred_skills = [s for s in preferred_skills if s not in required_skills]
 
         exp_years = _parse_exp_years(input_data.get("exp_years_raw"))
+        education_requirement = _extract_education_requirement(text)
 
         self.log_metrics({
             "required_skills": len(required_skills),
@@ -210,7 +231,7 @@ class JDParserAgent(BaseAgent):
             required_skills=required_skills,
             preferred_skills=preferred_skills,
             experience_years=exp_years,
-            education_requirement=None,
+            education_requirement=education_requirement,
             primary_keyword=input_data.get("primary_keyword"),
             raw_text=text,
         )
