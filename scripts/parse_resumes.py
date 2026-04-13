@@ -1,5 +1,5 @@
 """
-Runs ResumeParserAgent over a sample of resumes and saves output to
+Runs ResumeParserAgent over a resumes dataset and saves output to
 data/processed/resumes_parsed.parquet
 """
 import pandas as pd
@@ -10,9 +10,8 @@ from config import RESUMES_RAW, PROCESSED_DIR
 def main():
     print(f"Loading resumes...")
     df = pd.read_parquet(RESUMES_RAW)
-    # Filter for positions containing "developer" (case-insensitive)
-    sample = df[df['Position'].str.contains('developer', case=False, na=False)].reset_index(drop=True)
-    print(f"Processing {len(sample)} resumes (filtered for developer positions)...")
+    sample = df.reset_index(drop=True)
+    print(f"Processing {len(sample)} resumes...")
 
     agent = ResumeParserAgent()
     results = []

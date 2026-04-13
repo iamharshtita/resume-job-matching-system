@@ -7,11 +7,10 @@ from tqdm import tqdm
 from agents.jd_parser import JDParserAgent
 from config import JDS_RAW, PROCESSED_DIR
 
-SAMPLE_SIZE = 2000
 def main():
     print("Loading JDs...")
     df = pd.read_parquet(JDS_RAW)
-    sample = df.head(SAMPLE_SIZE).reset_index(drop=True)
+    sample = df.reset_index(drop=True)
     print(f"Processing {len(sample)} JDs...")
     agent = JDParserAgent()
     results = []
