@@ -1,94 +1,109 @@
-"""
-Configuration management for the resume-job matching system
-"""
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Project Root
+# Project root
 PROJECT_ROOT = Path(__file__).parent.parent
-
-# Data configs
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
 TAXONOMY_DIR = DATA_DIR / "taxonomy"
+OUTPUT_DIR = PROJECT_ROOT / "outputs"
 
 RESUMES_RAW = RAW_DIR / "resumes.parquet"
 JDS_RAW = RAW_DIR / "jds.parquet"
-
-# HuggingFace dataset config
-HF_RESUMES_DATASET = os.getenv("HF_RESUMES_DATASET", "lang-uk/recruitment-dataset-candidate-profiles-english")
-HF_JDS_DATASET = os.getenv("HF_JDS_DATASET", "lang-uk/recruitment-dataset-job-descriptions-english")
-HF_RESUMES_PARQUET = os.getenv("HF_PARQUET", "data/train-00000-of-00001.parquet")
-HF_JDS_PARQUET = os.getenv("HF_PARQUET", "data/train-00000-of-00001.parquet")
-
-# Skill mapping file path
 SKILLS_TAXONOMY_FILE = TAXONOMY_DIR / "skills_master.csv"
 
-# Score parameters
-WEIGHTS = {
-    "skill": 0.4,
-    "experience": 0.3,
-    "education": 0.2,
-    "title": 0.1,
-}
-SKILL_WEIGHTS = {
-    "required": 0.7,
-    "preferred": 0.3,
-}
-EXPLICIT_SKILL_CONFIDENCE = 1.0
-LATENT_SKILL_CONFIDENCE = 0.75
-
-# Output Paths
-OUTPUT_DIR = PROJECT_ROOT / "outputs"
 LOG_DIR = OUTPUT_DIR / "logs"
 RESULTS_DIR = OUTPUT_DIR / "results"
 EXPLANATIONS_DIR = OUTPUT_DIR / "explanations"
 VISUALIZATIONS_DIR = OUTPUT_DIR / "visualizations"
 
-# Ensure directories exist
-for directory in [LOG_DIR, RESULTS_DIR, EXPLANATIONS_DIR, VISUALIZATIONS_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+for _d in [LOG_DIR, RESULTS_DIR, EXPLANATIONS_DIR, VISUALIZATIONS_DIR]:
+    _d.mkdir(parents=True, exist_ok=True)
 
-# API Configuration
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+# HuggingFace dataset
+HF_RESUMES_DATASET = os.getenv(
+    "HF_RESUMES_DATASET",
+    "lang-uk/recruitment-dataset-candidate-profiles-english",
+)
+HF_JDS_DATASET = os.getenv(
+    "HF_JDS_DATASET",
+    "lang-uk/recruitment-dataset-job-descriptions-english",
+)
+HF_PARQUET_PATH = os.getenv("HF_PARQUET_PATH", "data/train-00000-of-00001.parquet")
 
-# Model Configuration
+# Models
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 SPACY_MODEL = os.getenv("SPACY_MODEL", "en_core_web_sm")
 
-# Scoring Weights
-SKILL_WEIGHT = float(os.getenv("SKILL_WEIGHT", 0.40))
-EXPERIENCE_WEIGHT = float(os.getenv("EXPERIENCE_WEIGHT", 0.30))
-EDUCATION_WEIGHT = float(os.getenv("EDUCATION_WEIGHT", 0.20))
-TITLE_WEIGHT = float(os.getenv("TITLE_WEIGHT", 0.10))
-
-# API Limits
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", 2000))
-TIMEOUT = int(os.getenv("TIMEOUT", 30))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
-
-# Logging Configuration
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_FILE = LOG_DIR / "app.log"
-
-# Education Levels (for scoring)
-EDUCATION_LEVELS = {
-    "high school": 1,
-    "associate": 2,
-    "bachelor": 3,
-    "master": 4,
-    "phd": 5,
-    "doctorate": 5
+# Defaults used when no learned weights file is present.
+# Run scripts/train_matcher_weights.py to produce outputs/results/learned_weights.json,
+# which will be picked up automatically on the next import.
+_DEFAULT_WEIGHTS = {
+    "skill": 0.4,
+    "experience": 0.3,
+    "education": 0.2,
+    "title": 0.1,
 }
 
-# Risk Thresholds
-JOB_HOPPING_THRESHOLD = 3  # jobs in 2 years
-CRITICAL_SKILL_GAP_THRESHOLD = 0.5  # 50% of critical skills missing
+_LEARNED_WEIGHTS_FILE = RESULTS_DIR / "learned_weights.json"
+
+def _load_weights() -> dict:
+    if _LEARNED_WEIGHTS_FILE.exists():
+        import json
+        with open(_LEARNED_WEIGHTS_FILE) as f:
+            loaded = json.load(f)
+        # Validate all four keys are present
+        if all(k in loaded for k in ("skill", "experience", "education", "title")):
+            return loaded
+    return _DEFAULT_WEIGHTS
+
+WEIGHTS = _load_weights()
+
+# Used in the exact-match fallback when skill vectors are unavailable
+SKILL_WEIGHTS = {
+    "required": 0.7,
+    "preferred": 0.3,
+}
+
+# Confidence assigned to skills depending on how they were found
+EXPLICIT_SKILL_CONFIDENCE = 1.0
+LATENT_SKILL_CONFIDENCE = 0.75
+
+# Education levels
+# Covers all degree types seen in the lang-uk recruitment dataset
+EDUCATION_LEVELS = {
+    "high school": 1,
+    "secondary": 1,
+    "certificate": 2,
+    "diploma": 2,
+    "associate": 2,
+    "incomplete higher": 2,
+    "bachelor": 3,
+    "undergraduate": 3,
+    "bsc": 3,
+    "b.sc": 3,
+    "b.s.": 3,
+    "higher education": 3,
+    "specialist": 4,
+    "master": 5,
+    "msc": 5,
+    "m.sc": 5,
+    "m.s.": 5,
+    "mba": 5,
+    "second higher": 5,
+    "phd": 6,
+    "ph.d": 6,
+    "doctorate": 6,
+    "doctor": 6,
+}
+
+# OpenAI used for LLM to establish ground truth
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE = LOG_DIR / "app.log"
