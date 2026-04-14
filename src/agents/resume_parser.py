@@ -1,17 +1,16 @@
-"""
-Resume Parser Agent
-Extracts skills, experience and education from raw CV text.
-"""
 import re
 import datetime
 from typing import Optional
+
 import spacy
 from loguru import logger
+
 from .base_agent import BaseAgent
 from schemas.models import ParsedResume, ExperienceBlock, EducationBlock
 
-# Skill section header on its own line
-_SKILL_SECTION_HDR = re.compile(
+
+# Detects a skills section header
+SKILL_SECTION_HDR = re.compile(
     r"^[*_\-]{0,2}\s*(skills?|tech(?:nologies?|nical\s*skills?)?|"
     r"stack|tools?|languages?|frameworks?|platforms?|expertise|"
     r"competenc(?:ies|e)|my\s+skills?|key\s+skills?|core\s+skills?|"
@@ -20,8 +19,8 @@ _SKILL_SECTION_HDR = re.compile(
     re.IGNORECASE,
 )
 
-# Signals that a new (non-skill) section has started
-_END_SECTION_HDR = re.compile(
+# Detects the start of a non-skill section so we know when to stop collecting skills
+END_SECTION_HDR = re.compile(
     r"^[*_\-]{0,2}\s*(experience|education|work\s+experience|employment|"
     r"personal|contact|certification|project|achievement|"
     r"summary|objective|profile|reference|interest|award|"
@@ -30,35 +29,51 @@ _END_SECTION_HDR = re.compile(
     re.IGNORECASE,
 )
 
-# Inline skill header: "Stack: Python, React, ..."
-_INLINE_SKILL_HDR = re.compile(
+# Detects inline skill lists like "Stack: Python, React, Node.js"
+INLINE_SKILL_HDR = re.compile(
     r"\b(tools?|stack|tech(?:nologies)?|skills?|languages?|frameworks?|platforms?)"
     r"[^:\n]{0,30}:\s*(.+)",
     re.IGNORECASE,
 )
 
-_DEGREE = re.compile(
+# Degree keywords — used to identify education lines
+DEGREE = re.compile(
     r"\b(bachelor(?:'?s)?|master(?:'?s)?|b\.s\.|m\.s\.|ph\.?d\.?|mba|bsc|msc"
-    r"|specialist|diploma|certificate|degree)\b",
+    r"|specialist|diploma|certificate|degree"
+    r"|higher\s+education|incomplete\s+higher|second\s+higher"
+    r"|bachelor\s+of|master\s+of|doctor\s+of)\b",
     re.IGNORECASE,
 )
 
-_EDU_CONTEXT = re.compile(
+# University/institute keywords
+UNI_LINE = re.compile(
+    r"\b(university|universit[eéè]|universidad|univerza"
+    r"|institute|institut|polytechnic|academy|akademi"
+    r"|college|facult(?:y|é)|school\s+of)\b",
+    re.IGNORECASE,
+)
+
+# education related lines
+EDU_CONTEXT = re.compile(
     r"\b(university|college|school|institute|degree|studied|graduated|faculty"
     r"|course|program|major|minor|academia|studying)\b",
     re.IGNORECASE,
 )
 
-_YEAR = re.compile(r"\b(19[89]\d|20[012]\d)\b")
+# Matches a 4-digit year (1980–2029)
+YEAR = re.compile(r"\b(19[89]\d|20[012]\d)\b")
 
-_YEAR_RANGE = re.compile(
+# Matches a year range like "2018 - 2021" or "2019 – Present"
+YEAR_RANGE = re.compile(
     r"\b((?:19|20)\d{2})\s*[-–—]\s*((?:19|20)\d{2}|present|now|current)\b",
     re.IGNORECASE,
 )
 
-_TECH_TOKEN = re.compile(r"^[A-Za-z#\.\+][A-Za-z0-9#\.\+\-]{0,28}$")
+# A ech name (used outside skill sections)
+TECH_TOKEN = re.compile(r"^[A-Za-z#\.\+][A-Za-z0-9#\.\+\-]{0,28}$")
 
-_SKILL_STOPWORDS = {
+# Generic words
+SKILL_STOPWORDS = {
     "the", "and", "for", "with", "from", "this", "that", "have", "has",
     "been", "also", "more", "very", "some", "such", "into", "over",
     "other", "work", "team", "role", "year", "time", "high", "good",
@@ -69,14 +84,25 @@ _SKILL_STOPWORDS = {
     "level", "basic", "advanced", "intermediate", "senior", "junior",
 }
 
+# Final filter applied after extraction — removes geography, natural languages,
+# and seniority labels that slipped through
+SKILL_NOISE = {
+    "ukraine", "kyiv", "odesa", "lviv", "kharkiv", "chernivtsi", "dnipro", "zaporizhzhia",
+    "poland", "germany", "france", "usa", "canada", "uk", "remote", "worldwide",
+    "english", "ukrainian", "russian", "polish", "german", "french", "spanish",
+    "present", "currently", "now", "today", "full-time", "part-time", "freelance",
+    "senior", "junior", "middle", "lead", "intern", "staff",
+}
 
-def _clean_skill_token(token: str) -> Optional[str]:
-    """Clean and validate a skill token. Returns None if it doesn't look like a skill."""
-    t = re.sub(r'\([^)]*\)', '', token)  # remove parentheticals like (Vue.js)
+
+def clean_skill_token(token: str) -> Optional[str]:
+    """Strip punctuation and validate a skill string.
+    Returns None if the token is too short, too long, or a stopword."""
+    t = re.sub(r'\([^)]*\)', '', token)   # drop parentheticals e.g. "(Vue.js)"
     t = t.strip(" .,;:-\r\n*_•")
     if not t or len(t) < 2 or len(t) > 50:
         return None
-    if t.lower() in _SKILL_STOPWORDS:
+    if t.lower() in SKILL_STOPWORDS:
         return None
     if not any(c.isalpha() for c in t):
         return None
@@ -85,30 +111,27 @@ def _clean_skill_token(token: str) -> Optional[str]:
     return t
 
 
-def _looks_like_tech(token: str) -> bool:
-    """Stricter check for tokens outside explicit skill sections (single-word only)."""
+def looks_like_tech(token: str) -> bool:
+    """Stricter check used outside explicit skill sections."""
     t = token.strip(" .,;:-")
     if len(t) < 2 or len(t) > 30:
         return False
-    if t.lower() in _SKILL_STOPWORDS:
+    if t.lower() in SKILL_STOPWORDS:
         return False
-    if not _TECH_TOKEN.match(t):
+    if not TECH_TOKEN.match(t):
         return False
     if not any(c.isalpha() for c in t):
         return False
-    has_digit = any(c.isdigit() for c in t)
+    has_digit   = any(c.isdigit() for c in t)
     has_special = any(c in "#.+" for c in t)
-    is_upper = t.isupper() and len(t) >= 2
-    is_mixed = t[0].isupper() and any(c.islower() for c in t[1:])
+    is_upper    = t.isupper() and len(t) >= 2
+    is_mixed    = t[0].isupper() and any(c.islower() for c in t[1:])
     return has_digit or has_special or is_upper or is_mixed
 
 
-def _extract_skills_from_section_lines(lines: list[str]) -> set[str]:
-    """
-    Lenient skill extraction from within an explicit skill section.
-    Accepts multi-word skills and lowercase tokens.
-    """
-    skills: set[str] = set()
+def extract_skills_from_section_lines(lines: list) -> set:
+    """Extraction once we are inside a skill section."""
+    skills = set()
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -117,42 +140,47 @@ def _extract_skills_from_section_lines(lines: list[str]) -> set[str]:
             content = stripped.lstrip("-*•· ").strip()
             if "," in content or ";" in content:
                 for token in re.split(r"[,;]", content):
-                    tok = _clean_skill_token(token)
+                    tok = clean_skill_token(token)
                     if tok:
                         skills.add(tok)
             else:
-                tok = _clean_skill_token(content)
+                tok = clean_skill_token(content)
                 if tok:
                     skills.add(tok)
         else:
             if "," in stripped or ";" in stripped:
                 for token in re.split(r"[,;]", stripped):
-                    tok = _clean_skill_token(token)
+                    tok = clean_skill_token(token)
                     if tok:
                         skills.add(tok)
             else:
-                tok = _clean_skill_token(stripped)
+                tok = clean_skill_token(stripped)
                 if tok and len(stripped.split()) <= 4:
                     skills.add(tok)
     return skills
 
 
-def _extract_skills(text: str) -> list[str]:
-    skills: set[str] = set()
+def extract_skills(text: str) -> list:
+    """Main skill extractor. Three passes over the CV text:
+    finds an explicit skill section header, collects everything
+    until the next non-skill section starts.
+    picks up inline skill lists like "Stack: Python, React, Node.js".
+    grabs tech-looking tokens from bullet lines with commas.
+    """
+    skills = set()
     lines = text.splitlines()
     i = 0
 
     while i < len(lines):
         stripped = lines[i].strip()
 
-        # Pass 1: Detect explicit skill section header on its own line
-        if _SKILL_SECTION_HDR.match(stripped):
+        if SKILL_SECTION_HDR.match(stripped):
             section_lines = []
             blank_count = 0
             j = i + 1
             while j < len(lines):
                 next_stripped = lines[j].strip()
-                if _END_SECTION_HDR.match(next_stripped):
+                if END_SECTION_HDR.match(next_stripped):
                     break
                 if not next_stripped:
                     blank_count += 1
@@ -163,25 +191,23 @@ def _extract_skills(text: str) -> list[str]:
                     section_lines.append(lines[j])
                 j += 1
             if section_lines:
-                skills.update(_extract_skills_from_section_lines(section_lines))
+                skills.update(extract_skills_from_section_lines(section_lines))
             i = j
             continue
 
-        # Pass 2: Inline skill header (e.g. "Stack: Python, React, Node.js")
-        m = _INLINE_SKILL_HDR.search(stripped)
+        m = INLINE_SKILL_HDR.search(stripped)
         if m:
             for token in re.split(r"[,;/]", m.group(2)):
-                tok = _clean_skill_token(token)
+                tok = clean_skill_token(token)
                 if tok:
                     skills.add(tok)
 
-        # Pass 3: Bullet lines with comma/semicolon-separated tech tokens
         if stripped.startswith(("-", "*", "•")):
             content = stripped.lstrip("-*• ").strip()
             if "," in content or ";" in content:
                 for token in re.split(r"[,;]", content):
                     token = token.strip(" .\r\n")
-                    if _looks_like_tech(token):
+                    if looks_like_tech(token):
                         skills.add(token)
 
         i += 1
@@ -189,49 +215,72 @@ def _extract_skills(text: str) -> list[str]:
     return sorted(skills)
 
 
-def _extract_education(text: str) -> list[EducationBlock]:
-    blocks: list[EducationBlock] = []
-    seen: set[str] = set()
+def extract_education(text: str) -> list:
+    """Two-pass education extractor.
+    finds lines that contain a degree keyword alongside a year or
+    educational word.
+    finds a university name on its own line and looks within a 3-line
+    window for a nearby degree string.
+    """
+    blocks = []
+    seen = set()
+    lines = text.splitlines()
 
-    for line in text.splitlines():
-        degree_match = _DEGREE.search(line)
-        if not degree_match:
-            continue
-
-        has_context = bool(_EDU_CONTEXT.search(line))
-        has_year = bool(_YEAR.search(line))
-        # Accept if there's context, or if line is short enough to be an edu statement
-        if not has_context and not has_year:
-            if len(line.strip().split()) > 15:
-                continue
-
-        key = line.strip()[:80]
-        if key in seen:
-            continue
-        seen.add(key)
-
-        year_match = _YEAR.search(line)
+    def add(degree, year_str, key):
+        norm_key = degree.lower().split()[0] + "|" + str(year_str or "")
+        if norm_key in seen:
+            return
+        seen.add(norm_key)
+        seen.add(key[:80])
         blocks.append(EducationBlock(
-            degree=degree_match.group(0).capitalize(),
-            field=None,
-            institution=None,
-            year=int(year_match.group(0)) if year_match else None,
+            degree=degree.capitalize(),
+            year=int(year_str) if year_str else None,
         ))
+
+    for line in lines:
+        dm = DEGREE.search(line)
+        if not dm:
+            continue
+        has_context = bool(EDU_CONTEXT.search(line))
+        has_year = bool(YEAR.search(line))
+        if not has_context and not has_year and len(line.strip().split()) > 15:
+            continue
+        yr = YEAR.search(line)
+        add(dm.group(0), yr.group(0) if yr else None, line.strip())
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not UNI_LINE.search(stripped):
+            continue
+        window = lines[max(0, i - 2): i + 4]
+        for nearby in window:
+            if nearby is line:
+                continue
+            dm = DEGREE.search(nearby)
+            if not dm:
+                continue
+            yr = YEAR.search(nearby) or YEAR.search(line)
+            key = stripped + "|" + nearby.strip()
+            add(dm.group(0), yr.group(0) if yr else None, key)
+            break
 
     return blocks
 
 
-def _extract_experience_blocks(text: str) -> list[ExperienceBlock]:
-    blocks: list[ExperienceBlock] = []
-    seen: set[str] = set()
+def extract_experience_blocks(text: str) -> list:
+    """Two-pass experience extractor.
+    looks for a year range on one line ("2018 – Present") with a
+    job title on the next line.
+    looks for "Title at Company".
+    """
+    blocks = []
+    seen = set()
     lines = text.splitlines()
 
-    # Pass 1: Year-range line followed by job title on next line
-    # Format: "2011 - Present\nJob Title\n..."
     i = 0
     while i < len(lines):
         stripped = lines[i].strip()
-        yr_match = _YEAR_RANGE.search(stripped)
+        yr_match = YEAR_RANGE.search(stripped)
         if yr_match:
             j = i + 1
             while j < len(lines) and not lines[j].strip():
@@ -254,17 +303,15 @@ def _extract_experience_blocks(text: str) -> list[ExperienceBlock]:
                         seen.add(key)
                         blocks.append(ExperienceBlock(
                             title=title_line,
-                            company=None,
                             duration_months=duration,
                             description=stripped[:300],
                         ))
         i += 1
 
-    # Pass 2: "Title at/@ Company" on a single line
-    _JOB_LINE = re.compile(r"^(.{3,50}?)\s+(?:at|@|–|—)\s+(.{2,60})$", re.IGNORECASE)
+    job_line = re.compile(r"^(.{3,50}?)\s+(?:at|@|–|—)\s+(.{2,60})$", re.IGNORECASE)
     for line in lines:
         stripped = line.strip()
-        m = _JOB_LINE.match(stripped)
+        m = job_line.match(stripped)
         if not m:
             continue
         title = m.group(1).strip().lstrip("-*•· ").strip()
@@ -275,7 +322,7 @@ def _extract_experience_blocks(text: str) -> list[ExperienceBlock]:
         if key in seen:
             continue
         seen.add(key)
-        year_match = _YEAR.search(stripped)
+        year_match = YEAR.search(stripped)
         duration_months = None
         if year_match:
             year = int(year_match.group(0))
@@ -289,23 +336,22 @@ def _extract_experience_blocks(text: str) -> list[ExperienceBlock]:
 
     return blocks
 
-
+"""Resume Parser agent trigger"""
 class ResumeParserAgent(BaseAgent):
-    """Parses raw CV text into a structured ParsedResume."""
 
     def __init__(self):
         super().__init__("ResumeParserAgent")
         logger.info("Loading spaCy model")
-        self._nlp = spacy.load("en_core_web_sm")
-        logger.info("spaCy model ready.")
+        self.nlp = spacy.load("en_core_web_sm")
+        logger.info("spaCy model ready")
 
     def process(self, input_data: dict) -> dict:
         self.validate_input(input_data, ["raw_text"])
-        text: str = input_data["raw_text"] or ""
+        text = input_data.get("raw_text") or ""
 
-        skills = _extract_skills(text)
-        education = _extract_education(text)
-        experience = _extract_experience_blocks(text)
+        skills = [s for s in extract_skills(text) if s.lower() not in SKILL_NOISE]
+        education = extract_education(text)
+        experience = extract_experience_blocks(text)
 
         self.log_metrics({
             "skills_found": len(skills),
@@ -314,7 +360,7 @@ class ResumeParserAgent(BaseAgent):
             "text_length": len(text),
         })
 
-        result = ParsedResume(
+        return ParsedResume(
             id=input_data.get("id"),
             position=input_data.get("position"),
             experience_years=input_data.get("experience_years"),
@@ -322,5 +368,4 @@ class ResumeParserAgent(BaseAgent):
             experience=experience,
             education=education,
             raw_text=text,
-        )
-        return result.model_dump()
+        ).model_dump()

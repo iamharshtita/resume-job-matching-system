@@ -47,6 +47,7 @@ ENV/
 # Data Files (keep structure, ignore all data)
 data/**
 !data/**/.gitkeep
+!data/taxonomy/skills_master.csv
 
 # Embeddings and Models
 *.pt

@@ -8,27 +8,27 @@ from .base_agent import BaseAgent
 from schemas.models import ParsedJD
 
 # Section headers
-_REQUIRED_HEADERS = re.compile(
+REQUIRED_HEADERS = re.compile(
     r"^\*{0,2}\s*(requirements?|qualifications?|what we (expect|need|look for)"
     r"|must[ -]have|you (will|should) have|we (require|expect))\s*[:\*]*\s*$",
     re.IGNORECASE,
 )
 
-_PREFERRED_HEADERS = re.compile(
+PREFERRED_HEADERS = re.compile(
     r"^\*{0,2}\s*(nice[ -]to[ -]have|preferred|bonus|w(?:ould|ill) be (a )?plus"
     r"|advantageous|optional|good to have|desirable|would be nice"
     r"|plus(?:es)?|additional|nice\s+to\s+have)\s*[:\*]*\s*$",
     re.IGNORECASE,
 )
 
-_OTHER_HEADERS = re.compile(
+OTHER_HEADERS = re.compile(
     r"^\*{0,2}\s*(responsibilities|about (the )?(company|project|role|us|team)"
     r"|what you('ll| will) do|your role|benefits?|we offer|perks?|why (join|us))\s*[:\*]*\s*$",
     re.IGNORECASE,
 )
 
 # Words that look like section headers
-_SECTION_WORDS = {
+SECTION_WORDS = {
     "responsibilities", "requirements", "qualifications", "benefits",
     "responsibilities:", "requirements:", "qualifications:", "benefits:",
     "experience", "education", "about", "overview", "summary",
@@ -36,17 +36,17 @@ _SECTION_WORDS = {
 }
 
 # Inline lists skill headers
-_SKILL_HEADER = re.compile(
+SKILL_HEADER = re.compile(
     r"\b(tools?|stack|tech(?:nologies)?|skills?|languages?|frameworks?|platforms?|requirements?)"
     r"[^:\n]{0,30}:\s*(.+)",
     re.IGNORECASE,
 )
 
 # Experience years.
-_EXP_YEARS = re.compile(r"(\d+)", )
+EXP_YEARS = re.compile(r"(\d+)", )
 
 # Education requirement
-_EDU_DEGREE = re.compile(
+EDU_DEGREE = re.compile(
     r"\b(b\.?sc?\.?|m\.?sc?\.?|ph\.?d\.?|mba|bachelor(?:'?s)?|master(?:'?s)?"
     r"|degree|diploma|certificate|university|college|computer\s*science"
     r"|related\s+field)\b",
@@ -54,9 +54,9 @@ _EDU_DEGREE = re.compile(
 )
 
 # Tech stack token
-_TECH_TOKEN = re.compile(r"^[A-Za-z#\.\+][A-Za-z0-9#\.\+\-]{0,28}$")
+TECH_TOKEN = re.compile(r"^[A-Za-z#\.\+][A-Za-z0-9#\.\+\-]{0,28}$")
 
-_PROSE_STOPWORDS = {
+PROSE_STOPWORDS = {
     "the", "and", "for", "with", "from", "this", "that", "have", "has",
     "been", "also", "more", "very", "some", "such", "into", "over",
     "other", "work", "team", "role", "year", "time", "high", "good",
@@ -66,13 +66,13 @@ _PROSE_STOPWORDS = {
     "excellent", "proficiency", "familiarity", "working",
 }
 
-def _looks_like_tech(token: str) -> bool:
+def looks_like_tech(token: str) -> bool:
     t = token.strip(" .,;:-\r\n")
     if len(t) < 2 or len(t) > 30:
         return False
-    if t.lower() in _PROSE_STOPWORDS:
+    if t.lower() in PROSE_STOPWORDS:
         return False
-    if not _TECH_TOKEN.match(t):
+    if not TECH_TOKEN.match(t):
         return False
     if not any(c.isalpha() for c in t):
         return False
@@ -82,22 +82,20 @@ def _looks_like_tech(token: str) -> bool:
     is_mixed = t[0].isupper() and any(c.islower() for c in t[1:])
     return has_digit or has_special or is_upper or is_mixed
 
-_PROSE_SKILL = re.compile(
+PROSE_SKILL = re.compile(
     r"\b(?:knowledge of|experience (?:with|in)|proficiency (?:in|with)"
     r"|familiar(?:ity)? with|working with|expertise in|skilled in)\s+"
     r"([A-Za-z][A-Za-z0-9#\.\+\-]*(?:\s+[A-Za-z][A-Za-z0-9#\.\+\-]*){0,2})",
     re.IGNORECASE,
 )
 
-def _extract_skills_from_lines(lines: list[str]) -> list[str]:
+def extract_skills_from_lines(lines: list[str]) -> list[str]:
     """
-    Four-pass skill extraction from a list of lines.
-
-    Pass 1 — bullet lines with comma/semicolon separated tokens.
-    Pass 2 — inline lists after a skill-header keyword (Stack: X, Y).
-    Pass 3 — single short lines in requirements section (one skill per line,
-              no bullet marker — common in Djinni JDs e.g. "Kyber Network").
-    Pass 4 — prose patterns: "knowledge of X", "experience with X".
+    Four step skill extraction from a list of lines.
+    bullet lines with comma/semicolon separated tokens.
+    inline lists after a skill-header keyword (Stack: X, Y).
+    single short lines in requirements section
+    prose patterns: "knowledge of X", "experience with X".
     """
     skills: set[str] = set()
     for line in lines:
@@ -111,31 +109,31 @@ def _extract_skills_from_lines(lines: list[str]) -> list[str]:
             if "," in content or ";" in content:
                 for token in re.split(r"[,;]", content):
                     token = token.strip(" .\r\n")
-                    if _looks_like_tech(token):
+                    if looks_like_tech(token):
                         skills.add(token)
             else:
-                if _looks_like_tech(content):
+                if looks_like_tech(content):
                     skills.add(content)
             
 
         # inline skill list after a header
-        m = _SKILL_HEADER.search(stripped)
+        m = SKILL_HEADER.search(stripped)
         if m:
             for token in re.split(r"[,;/]", m.group(2)):
                 token = token.strip(" .\r\n")
                 if token and len(token) > 1:
                     skills.add(token)
 
-        # short non-bullet line (skip lines already handled as bullets)
+        # non-bullet line
         words = stripped.split()
         if (
             not stripped.startswith(("-", "*", "•", "·"))
             and 1 <= len(words) <= 3
-            and stripped.lower().rstrip(":") not in _SECTION_WORDS
+            and stripped.lower().rstrip(":") not in SECTION_WORDS
         ):
-            if _looks_like_tech(stripped):
+            if looks_like_tech(stripped):
                 skills.add(stripped)
-        for m in _PROSE_SKILL.finditer(stripped):
+        for m in PROSE_SKILL.finditer(stripped):
             token = m.group(1).strip(" .,;:-")
             if token and 2 <= len(token) <= 40 and token[0].isupper():
                 skills.add(token)
@@ -143,30 +141,30 @@ def _extract_skills_from_lines(lines: list[str]) -> list[str]:
     return sorted(skills)
 
 
-def _extract_education_requirement(text: str) -> Optional[str]:
+def extract_education_requirement(text: str) -> Optional[str]:
     """Return the first line that mentions an education requirement."""
     for line in text.splitlines():
-        if _EDU_DEGREE.search(line):
+        if EDU_DEGREE.search(line):
             stripped = line.strip().lstrip("-*•· ").strip()
             if stripped and len(stripped) < 200:
                 return stripped
     return None
 
 
-def _parse_exp_years(exp_str: str):
+def parse_exp_years(exp_str: str):
     """
     Convert Exp Years string to an integer.
-    Examples: "2y" → 2, "3-5y" → 3, "no exp" → 0, "10y+" → 10
+    "2y" → 2, "3-5y" → 3, "no exp" → 0, "10y+" → 10
     """
     if not exp_str or str(exp_str).lower() in ("nan", "none", "no exp", ""):
         return None
-    nums = _EXP_YEARS.findall(str(exp_str))
+    nums = EXP_YEARS.findall(str(exp_str))
     if nums:
         return int(nums[0])
     return None
 
 
-def _split_sections(text: str) -> dict[str, list[str]]:
+def split_sections(text: str) -> dict[str, list[str]]:
     """
     Split JD into named sections by detecting header.
     Returns dict: {"required": [], "preferred": [], "other": []}
@@ -177,11 +175,11 @@ def _split_sections(text: str) -> dict[str, list[str]]:
         stripped = line.strip()
         if not stripped:
             continue
-        if _REQUIRED_HEADERS.match(stripped):
+        if REQUIRED_HEADERS.match(stripped):
             current = "required"
-        elif _PREFERRED_HEADERS.match(stripped):
+        elif PREFERRED_HEADERS.match(stripped):
             current = "preferred"
-        elif _OTHER_HEADERS.match(stripped):
+        elif OTHER_HEADERS.match(stripped):
             current = "other"
         else:
             sections[current].append(line)
@@ -192,7 +190,6 @@ class JDParserAgent(BaseAgent):
     """
     Parses raw job description into structured fields.
     """
-
     def __init__(self):
         super().__init__("JDParserAgent")
 
@@ -202,20 +199,20 @@ class JDParserAgent(BaseAgent):
         text: str = input_data["raw_text"] or ""
 
         # Split sections
-        sections = _split_sections(text)
+        sections = split_sections(text)
 
         # No required section detected, treat the whole text as required
         if not sections["required"]:
             sections["required"] = text.splitlines()
 
-        required_skills = _extract_skills_from_lines(sections["required"])
-        preferred_skills = _extract_skills_from_lines(sections["preferred"])
+        required_skills = extract_skills_from_lines(sections["required"])
+        preferred_skills = extract_skills_from_lines(sections["preferred"])
 
         # overlap
         preferred_skills = [s for s in preferred_skills if s not in required_skills]
 
-        exp_years = _parse_exp_years(input_data.get("exp_years_raw"))
-        education_requirement = _extract_education_requirement(text)
+        exp_years = parse_exp_years(input_data.get("exp_years_raw"))
+        education_requirement = extract_education_requirement(text)
 
         self.log_metrics({
             "required_skills": len(required_skills),

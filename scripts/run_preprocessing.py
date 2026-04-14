@@ -1,11 +1,5 @@
 """
 Runs the full preprocessing pipeline:
-  1. Parse resumes  → data/processed/resumes_parsed.parquet
-  2. Parse JDs      → data/processed/jds_parsed.parquet
-
-Run individual scripts instead if you only need one:
-  python scripts/parse_resumes.py
-  python scripts/parse_jds.py
 """
 from loguru import logger
 import parse_resumes
