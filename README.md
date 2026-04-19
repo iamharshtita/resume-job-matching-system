@@ -1,143 +1,300 @@
 # Resume-Job Matching System
 
-A multi-agent AI system for intelligent resume-job matching with explainable results.
-
-## Overview
-
-This project implements a multi-agent architecture using the Strands Agents SDK to match job candidates with positions. The system outperforms traditional ATS (Applicant Tracking System) keyword matching by providing:
-
-- **Better Ranking Quality**: Uses semantic understanding beyond keywords
-- **Contextual Skill Matching**: Identifies explicit and latent skills
-- **Explainability**: Evidence-backed explanations for rankings
-- **Fairness**: Consistent evaluation across demographic variations
+A multi-agent pipeline for intelligent resume–job description matching with explainable, skill-aware ranking.
 
 ## Architecture
 
-The system consists of 5 main components:
+Six agents work in sequence:
 
-1. **Resume Parser Agent** - Extracts structured data from raw resumes
-2. **Skill Mining Agent** - Identifies skills using O*NET taxonomy and embeddings
-3. **Job-Resume Matching Agent** - Computes multi-dimensional fit scores
-4. **Ranking & Explanation Agent** - Ranks candidates and generates explanations
-5. **Orchestrator** - Coordinates agent interactions
+```
+Raw Resume Text          Raw JD Text
+       │                      │
+       ▼                      ▼
+ ResumeParserAgent       JDParserAgent
+ (skills, experience,    (required/preferred skills,
+  english level)          experience years, english level)
+       │                      │
+       ▼                      ▼
+ SkillMiningAgent        SkillMiningAgent
+ (canonical skills +     (canonical skills +
+  sentence embeddings)    sentence embeddings)
+       │                      │
+       └──────────┬───────────┘
+                  ▼
+           MatchingAgent
+     (skill score · experience score
+      english level score · title score
+      → weighted final_score)
+                  │
+                  ▼
+      RankingExplanationAgent
+      (rank + plain-English explanation)
+```
+
+**Score weights** (configurable in `src/config.py`):
+
+| Component | Weight | Signal |
+|-----------|--------|--------|
+| Skill match | 0.40 | Semantic cosine similarity between skill embeddings |
+| Experience | 0.30 | Resume years / JD required years |
+| English level | 0.20 | Ordinal scale (no_english → fluent) |
+| Title overlap | 0.10 | Jaccard on position tokens |
+
+**Novel contribution — Skill-IDF weighting** (`scripts/test_skill_idf.py`):  
+Rare skills in the JD corpus receive higher IDF weight than ubiquitous ones.  
+Evaluated against a TF-IDF baseline and GPT-4 recruiter scores:
+
+| Metric | TF-IDF | Skill-IDF | Combined |
+|--------|--------|-----------|----------|
+| NDCG@5 | 0.732 | **0.894** | 0.882 |
+| Precision@5 | 0.724 | **1.000** | 0.916 |
+| Spearman vs GPT | 0.175 | 0.440 | **0.615** |
+
+---
 
 ## Project Structure
 
 ```
 resume-job-matching-system/
-├── data/               # Dataset storage
-├── src/                # Source code
-│   ├── agents/        # Agent implementations
-│   ├── preprocess/    # Data preprocessing
-│   ├── features/      # Feature extraction
-│   ├── retrieval/     # Embeddings and vector store
-│   ├── scoring/       # Scoring functions
-│   ├── baselines/     # Baseline systems
-│   └── evaluation/    # Metrics and evaluation
-├── notebooks/         # Jupyter notebooks for experiments
-├── configs/           # Configuration files
-├── tests/             # Unit tests
-├── scripts/           # Executable scripts
-└── outputs/           # Results and logs
+├── data/
+│   ├── raw/                        # Raw Djinni dataset (resumes + JDs)
+│   └── processed/
+│       ├── resumes_parsed.parquet  # Output of parse_resumes.py
+│       ├── jds_parsed.parquet      # Output of parse_jds.py
+│       └── samples/                # Keyword-filtered subsets
+├── src/
+│   ├── agents/
+│   │   ├── base_agent.py
+│   │   ├── resume_parser.py        # Parses raw CV text
+│   │   ├── jd_parser.py            # Parses raw JD text
+│   │   ├── skill_miner.py          # Maps skills → canonical + embeddings
+│   │   ├── matcher.py              # Multi-dimensional scoring
+│   │   ├── ranker.py               # Ranking + explanation generation
+│   │   └── orchestrator.py         # End-to-end coordinator
+│   ├── baselines/
+│   │   └── tfidf_baseline.py       # TF-IDF baseline agent
+│   ├── schemas/models.py           # Pydantic data models
+│   └── config.py                   # Weights, constants, paths
+├── scripts/
+│   ├── parse_resumes.py            # Batch parse all resumes
+│   ├── parse_jds.py                # Batch parse all JDs
+│   ├── sample_dataset.py           # Filter dataset by keyword
+│   ├── run_full_pipeline.py        # Multi-agent pipeline (single pair / batch)
+│   ├── run_tfidf_baseline.py       # TF-IDF baseline scorer
+│   └── run_skill_idf.py            # Skill-IDF baseline scorer
+├── tests/
+│   └── test_agents/
+├── outputs/results/                # Evaluation CSVs
+└── requirements.txt
 ```
 
-## Getting Started
+---
 
-### Prerequisites
-
-- Python 3.10+
-- pip or poetry for dependency management
-
-### Installation
+## Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/resume-job-matching-system.git
+# 1. Clone and create virtual environment
+git clone <repo-url>
 cd resume-job-matching-system
-
-# Create and activate virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
-# Run setup (installs deps, downloads spaCy model, registers src/, downloads datasets)
-python setup_env.py
+# 2. Install dependencies
+pip install -r requirements.txt
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys
+# 3. Run setup (downloads sentence-transformer model on first use automatically)
 ```
 
-### Quick Start
+> **Python 3.9+** required.  
+> The skill miner downloads `all-MiniLM-L6-v2` from HuggingFace on first run (~80 MB, cached automatically).
+
+---
+
+## Running the Pipeline
+
+### Step 1 — Parse the dataset (one-time)
+
+Parse all raw resumes and JDs into structured parquet files:
 
 ```bash
-# Verify everything works
-python scripts/run_full_pipeline.py
-
-# Run preprocessing (parse resumes + JDs)
-python scripts/run_preprocessing.py
+PYTHONPATH=src python3 scripts/parse_resumes.py
+PYTHONPATH=src python3 scripts/parse_jds.py
 ```
 
-## Usage
+Outputs:
+- `data/processed/resumes_parsed.parquet`
+- `data/processed/jds_parsed.parquet`
 
-### Processing a Single Resume-Job Pair
+### Step 2 — (Optional) Sample a keyword-filtered subset
+
+```bash
+PYTHONPATH=src python3 scripts/sample_dataset.py \
+    --resume-keywords javascript \
+    --jd-keywords javascript \
+    --resume-limit 100 \
+    --jd-limit 100 \
+    --output-tag js
+```
+
+Outputs to `data/processed/samples/`.
+
+### Step 3 — Run the full pipeline
+
+**Single resume–JD pair** (uses built-in sample data):
+
+```bash
+PYTHONPATH=src python3 scripts/run_full_pipeline.py
+```
+
+**Single pair from your own files:**
+
+```bash
+PYTHONPATH=src python3 scripts/run_full_pipeline.py \
+    --resume path/to/resume.txt \
+    --jd path/to/job.txt
+```
+
+Optionally pass extra metadata:
+
+```bash
+PYTHONPATH=src python3 scripts/run_full_pipeline.py \
+    --resume resume.txt \
+    --jd job.txt \
+    --position "Senior Backend Engineer" \
+    --exp-years 5 \
+    --resume-id "candidate-42" \
+    --jd-id "job-123"
+```
+
+> Files must be plain `.txt` — paste the resume or JD text into a text file. Any filename works.
+
+**Rank multiple resumes against one JD:**
+
+```bash
+PYTHONPATH=src python3 scripts/run_full_pipeline.py \
+    --rank alice.txt bob.txt carol.txt \
+    --jd job.txt
+```
+
+Pass as many resume files as you want after `--rank`. Results are printed as a ranked table sorted by final score, with matched skills and a plain-English explanation per candidate.
+
+**Batch ranking** — rank N resumes against a JD from the parsed dataset:
+
+```bash
+PYTHONPATH=src python3 scripts/run_full_pipeline.py --batch --n 20
+```
+
+---
+
+## Using the Orchestrator in Code
+
+### Score a single resume against a JD
 
 ```python
-from src.agents.orchestrator import SkillMiningOrchestrator
+import sys
+sys.path.insert(0, "src")
+from agents.orchestrator import SkillMiningOrchestrator
 
 orchestrator = SkillMiningOrchestrator()
 
-result = orchestrator.process_candidate_job_pair(
-    resume_text="...",
-    job_text="..."
+result = orchestrator.run(
+    resume_text="Alex Chen\nSkills: Python, FastAPI, PostgreSQL, Docker...",
+    jd_text="Senior Python Engineer\nRequirements:\n- 4+ years Python\n- FastAPI...",
+    resume_id="candidate-001",
+    jd_id="job-001",
+    resume_position="Senior Backend Engineer",
+    experience_years=5.0,
 )
 
-print(f"Match Score: {result['final_score']}")
-print(f"Explanation: {result['explanation']}")
+print(f"Final score    : {result['final_score']}")
+print(f"Skill score    : {result['skill_score']}")
+print(f"Experience     : {result['experience_score']}")
+print(f"English level  : {result['english_level_score']}")
+print(f"Title match    : {result['title_score']}")
 ```
 
-### Ranking Multiple Candidates
+### Rank multiple candidates against one JD
 
 ```python
-ranked_results = orchestrator.rank_all_candidates(
-    job_id="job_123",
-    all_matches=match_results
+from agents.orchestrator import SkillMiningOrchestrator
+
+orchestrator = SkillMiningOrchestrator()
+
+# candidates: list of (resume_id, raw_resume_text)
+candidates = [
+    ("candidate-001", "Alice ... Skills: React, TypeScript, Node.js ..."),
+    ("candidate-002", "Bob   ... Skills: Angular, JavaScript, CSS ..."),
+    ("candidate-003", "Carol ... Skills: Vue.js, Python, SQL ..."),
+]
+
+jd_text = """
+Frontend Engineer
+Requirements:
+- React or Angular
+- TypeScript
+- 3+ years experience
+"""
+
+ranked = orchestrator.rank_candidates(
+    jd_text=jd_text,
+    candidates=candidates,
+    jd_id="job-frontend-001",
 )
 
-for rank, candidate in enumerate(ranked_results[:10], 1):
-    print(f"{rank}. {candidate['name']} - Score: {candidate['final_score']}")
+for candidate in ranked:
+    print(f"Rank {candidate['rank']:>2}  |  Score {candidate['final_score']:.3f}  "
+          f"|  {candidate['resume_id']}")
+    print(f"         Matched : {candidate['matched_skills']}")
+    print(f"         Missing : {candidate['missing_skills']}")
+    print(f"         {candidate['explanation']}")
+    print()
 ```
 
-## Evaluation
+`rank_candidates` returns a list of dicts sorted by `final_score` descending, each containing:
 
-The system is evaluated against two baselines:
+| Field | Type | Description |
+|-------|------|-------------|
+| `rank` | int | Position in ranking (1 = best) |
+| `resume_id` | str | ID passed in |
+| `final_score` | float | Weighted composite score (0–1) |
+| `matched_skills` | list[str] | JD skills found in resume |
+| `missing_skills` | list[str] | JD skills absent from resume |
+| `explanation` | str | Plain-English recruiter summary |
 
-1. **TF-IDF Baseline** - Traditional keyword matching
-2. **Single-Agent LLM** - Direct LLM scoring
+---
 
-### Metrics
+## Evaluation Scripts
 
-- **Ranking Quality**: NDCG, Spearman correlation, Precision@K
-- **Explanation Quality**: Human ratings (usefulness, clarity, faithfulness)
-- **Fairness**: Score stability across demographic variations
-- **Efficiency**: Runtime, API costs
-
-## Development
-
-### Running Tests
+### TF-IDF baseline comparison
 
 ```bash
-pytest tests/
+PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --auto --k 5
 ```
 
-### Code Style
+`--auto` picks the two most common keywords from the parsed dataset automatically.
+
+### Skill-IDF evaluation
+
+Requires the JS sample to exist (`scripts/sample_dataset.py --output-tag js` first):
 
 ```bash
-# Format code
-black src/
-
-# Lint code
-ruff check src/
+PYTHONPATH=src python3 scripts/run_skill_idf.py --k 5
 ```
+
+Prints NDCG@5, Precision@5, and Spearman correlation for TF-IDF vs Skill-IDF vs Combined.
+
+---
+
+## Dataset
+
+The system was built and evaluated on the **Djinni dataset** (Ukrainian tech job market):
+- 210,250 developer resumes
+- 141,897 job descriptions
+- Fields: raw CV text, position, experience years, English level, primary keyword
+
+Raw data goes in `data/raw/`. Paths are configured in `src/config.py`.
+
+---
 
 ## Team
 
@@ -146,12 +303,4 @@ ruff check src/
 - **Member 3**: Matching Agent, Scoring System, Baselines
 - **Member 4**: Ranking & Explanation Agent, Evaluation
 
-## License
-
-This project is developed for academic purposes as part of CSE 572 - Data Mining course at Arizona State University.
-
-## Acknowledgments
-
-- O*NET Database for skill taxonomy
-- Strands Agents SDK for agent orchestration
-- sentence-transformers for embeddings
+*CSE 572 — Data Mining, Arizona State University*

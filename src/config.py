@@ -37,7 +37,14 @@ HF_PARQUET_PATH = os.getenv("HF_PARQUET_PATH", "data/train-00000-of-00001.parque
 
 # Models
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-SPACY_MODEL = os.getenv("SPACY_MODEL", "en_core_web_sm")
+ENGLISH_LEVELS = {
+    "no_english":   0,
+    "pre":          1,
+    "basic":        2,
+    "intermediate": 3,
+    "upper":        4,
+    "fluent":       5,
+}
 
 # Defaults used when no learned weights file is present.
 # Run scripts/train_matcher_weights.py to produce outputs/results/learned_weights.json,

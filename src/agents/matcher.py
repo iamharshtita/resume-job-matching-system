@@ -9,10 +9,10 @@ Skill score — semantic overlap (primary):
 Falls back to exact canonical matching when skill vectors are absent.
 """
 import numpy as np
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, Set
 
 from .base_agent import BaseAgent
-from config import WEIGHTS, SKILL_WEIGHTS, EDUCATION_LEVELS
+from config import WEIGHTS, SKILL_WEIGHTS, ENGLISH_LEVELS
 from schemas.models import MatchScore
 
 # Cosine similarity below this is treated as noise
@@ -32,8 +32,8 @@ class MatchingAgent(BaseAgent):
         jd_skills  dict  — MinedSkills
         resume_exp_years
         jd_exp_years
-        resume_education
-        jd_education_req
+        resume_english_level
+        jd_english_level
         resume_position
         jd_title
     """
@@ -50,9 +50,9 @@ class MatchingAgent(BaseAgent):
             input_data.get("resume_exp_years"),
             input_data.get("jd_exp_years"),
         )
-        education_score = self._education_score(
-            input_data.get("resume_education", []),
-            input_data.get("jd_education_req"),
+        english_level_score = self._english_level_score(
+            input_data.get("resume_english_level"),
+            input_data.get("jd_english_level"),
         )
         title_score = self._title_score(
             input_data.get("resume_position", ""),
@@ -62,7 +62,7 @@ class MatchingAgent(BaseAgent):
         final_score = round(
             WEIGHTS["skill"]      * skill_score
             + WEIGHTS["experience"] * experience_score
-            + WEIGHTS["education"]  * education_score
+            + WEIGHTS["education"]  * english_level_score
             + WEIGHTS["title"]      * title_score,
             4,
         )
@@ -72,7 +72,7 @@ class MatchingAgent(BaseAgent):
             "jd_id": input_data["jd_id"],
             "skill": round(skill_score, 3),
             "experience": round(experience_score, 3),
-            "education": round(education_score, 3),
+            "english_level": round(english_level_score, 3),
             "title": round(title_score, 3),
             "final": final_score,
         })
@@ -83,7 +83,7 @@ class MatchingAgent(BaseAgent):
             jaccard_score=self._jaccard(input_data["resume_skills"], input_data["jd_skills"]),
             skill_score=skill_score,
             experience_score=experience_score,
-            education_score=education_score,
+            english_level_score=english_level_score,
             title_score=title_score,
             final_score=final_score,
         )
@@ -208,39 +208,16 @@ class MatchingAgent(BaseAgent):
         except (TypeError, ValueError):
             return 0.5
 
-    def _education_score(self, resume_education: List[dict], jd_edu_req: str) -> float:
-        """
-        Compare highest education level in the resume against the JD requirement.
-        Returns 0.5 when information is missing.
-        """
-        if not jd_edu_req:
+    def _english_level_score(self, resume_level: str, jd_level: str) -> float:
+        """Score English level fit: resume level / JD required level, capped at 1.0.
+        Returns 0.5 when either side is missing (neutral)."""
+        r = ENGLISH_LEVELS.get(str(resume_level).lower().strip()) if resume_level else None
+        j = ENGLISH_LEVELS.get(str(jd_level).lower().strip()) if jd_level else None
+        if r is None or j is None:
             return 0.5
-
-        required_level = self._parse_edu_level(jd_edu_req)
-        if required_level is None:
-            return 0.5
-
-        if resume_education is None or len(resume_education) == 0:
-            return 0.0
-
-        candidate_level = max(
-            (self._parse_edu_level(block.get("degree", "")) or 0)
-            for block in resume_education
-        )
-        if candidate_level == 0:
-            return 0.0
-
-        return min(candidate_level / required_level, 1.0)
-
-    def _parse_edu_level(self, text: str) -> int:
-        """Map education text to a numeric level using EDUCATION_LEVELS from config."""
-        if not text:
-            return None
-        text_lower = text.lower()
-        for keyword, level in sorted(EDUCATION_LEVELS.items(), key=lambda x: -x[1]):
-            if keyword in text_lower:
-                return level
-        return None
+        if j == 0:
+            return 1.0
+        return min(r / j, 1.0)
 
     def _title_score(self, resume_position: str, jd_title: str) -> float:
         """

@@ -149,33 +149,33 @@ class SkillMiningOrchestrator(BaseAgent):
             "jd_id":            jd_id,
             "resume_skills":    resume_skills,
             "jd_skills":        jd_skills,
-            "resume_exp_years": parsed_resume.get("experience_years") or experience_years,
-            "jd_exp_years":     parsed_jd.get("experience_years"),
-            "resume_education": parsed_resume.get("education", []),
-            "jd_education_req": parsed_jd.get("education_requirement"),
-            "resume_position":  parsed_resume.get("position") or resume_position or "",
-            "jd_title":         parsed_jd.get("title", ""),
+            "resume_exp_years":      parsed_resume.get("experience_years") or experience_years,
+            "jd_exp_years":          parsed_jd.get("experience_years"),
+            "resume_english_level":  parsed_resume.get("english_level"),
+            "jd_english_level":      parsed_jd.get("english_level"),
+            "resume_position":       parsed_resume.get("position") or resume_position or "",
+            "jd_title":              parsed_jd.get("title", ""),
         })
 
         logger.info(
             f"Pipeline done — final_score={match_result.get('final_score')} "
             f"(skill={match_result.get('skill_score')}  "
             f"exp={match_result.get('experience_score')}  "
-            f"edu={match_result.get('education_score')}  "
+            f"english={match_result.get('english_level_score')}  "
             f"title={match_result.get('title_score')})"
         )
 
         return {
-            "parsed_resume":  parsed_resume,
-            "parsed_jd":      parsed_jd,
-            "resume_skills":  resume_skills,
-            "jd_skills":      jd_skills,
-            "match":          match_result,
-            "final_score":    match_result.get("final_score", 0.0),
-            "skill_score":    match_result.get("skill_score", 0.0),
-            "experience_score": match_result.get("experience_score", 0.0),
-            "education_score":  match_result.get("education_score", 0.0),
-            "title_score":      match_result.get("title_score", 0.0),
+            "parsed_resume":       parsed_resume,
+            "parsed_jd":           parsed_jd,
+            "resume_skills":       resume_skills,
+            "jd_skills":           jd_skills,
+            "match":               match_result,
+            "final_score":         match_result.get("final_score", 0.0),
+            "skill_score":         match_result.get("skill_score", 0.0),
+            "experience_score":    match_result.get("experience_score", 0.0),
+            "english_level_score": match_result.get("english_level_score", 0.0),
+            "title_score":         match_result.get("title_score", 0.0),
         }
 
     # Batch evaluation
@@ -222,8 +222,8 @@ class SkillMiningOrchestrator(BaseAgent):
                     "jd_skills":        jd_skills,
                     "resume_exp_years": parsed_resume.get("experience_years"),
                     "jd_exp_years":     parsed_jd.get("experience_years"),
-                    "resume_education": parsed_resume.get("education", []),
-                    "jd_education_req": parsed_jd.get("education_requirement"),
+                    "resume_english_level": parsed_resume.get("english_level"),
+                    "jd_english_level":     parsed_jd.get("english_level"),
                     "resume_position":  parsed_resume.get("position", ""),
                     "jd_title":         parsed_jd.get("title", ""),
                 })
@@ -238,7 +238,7 @@ class SkillMiningOrchestrator(BaseAgent):
             "resume_skills_map":  resume_skills_map,
             "jd_skills":          jd_skills,
             "jd_exp_years":       parsed_jd.get("experience_years"),
-            "jd_education_req":   parsed_jd.get("education_requirement"),
+            "jd_english_level":   parsed_jd.get("english_level"),
         })
 
         logger.info(f"Ranking complete — {len(match_results)} candidates scored")

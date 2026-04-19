@@ -36,7 +36,7 @@ class RankingExplanationAgent(BaseAgent):
         resume_skills_map = input_data["resume_skills_map"]
         jd_skills         = input_data["jd_skills"]
         jd_exp_years      = input_data.get("jd_exp_years")
-        jd_education_req  = input_data.get("jd_education_req")
+        jd_english_level  = input_data.get("jd_english_level")
 
         jd_canonicals = [e["canonical"] for e in jd_skills.get("skills", [])]
         j_vecs_raw = jd_skills.get("skill_vectors", [])
@@ -60,7 +60,7 @@ class RankingExplanationAgent(BaseAgent):
                 missing=missing,
                 jd_required_count=len(jd_canonicals),
                 jd_exp_years=jd_exp_years,
-                jd_education_req=jd_education_req,
+                jd_english_level=jd_english_level,
             )
 
             ranked.append(RankedResult(
@@ -120,7 +120,7 @@ class RankingExplanationAgent(BaseAgent):
         missing: List[str],
         jd_required_count: int,
         jd_exp_years,
-        jd_education_req,
+        jd_english_level,
     ) -> str:
         """Plain-English explanation"""
         parts = []
@@ -157,15 +157,13 @@ class RankingExplanationAgent(BaseAgent):
         elif exp_score == 0.5:
             parts.append("Experience requirement not specified.")
 
-        # Education
-        edu_score = match.get("education_score", 0.5)
-        if jd_education_req:
-            if edu_score >= 1.0:
-                parts.append(f"Education meets requirement ({jd_education_req}).")
-            elif edu_score > 0:
-                parts.append(f"Education below requirement ({jd_education_req}).")
-            else:
-                parts.append("Education not found in resume.")
+        # English level
+        eng_score = match.get("english_level_score", 0.5)
+        if jd_english_level:
+            if eng_score >= 1.0:
+                parts.append(f"English level meets requirement ({jd_english_level}).")
+            elif eng_score > 0:
+                parts.append(f"English level below requirement ({jd_english_level}).")
 
         # Title
         title_score = match.get("title_score", 0.0)
