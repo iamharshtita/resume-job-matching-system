@@ -2,8 +2,6 @@ import re
 import datetime
 from typing import Optional
 
-import spacy
-from loguru import logger
 
 from .base_agent import BaseAgent
 from schemas.models import ParsedResume, ExperienceBlock, EducationBlock
@@ -341,9 +339,6 @@ class ResumeParserAgent(BaseAgent):
 
     def __init__(self):
         super().__init__("ResumeParserAgent")
-        logger.info("Loading spaCy model")
-        self.nlp = spacy.load("en_core_web_sm")
-        logger.info("spaCy model ready")
 
     def process(self, input_data: dict) -> dict:
         self.validate_input(input_data, ["raw_text"])
@@ -364,6 +359,7 @@ class ResumeParserAgent(BaseAgent):
             id=input_data.get("id"),
             position=input_data.get("position"),
             experience_years=input_data.get("experience_years"),
+            english_level=input_data.get("english_level"),
             raw_skills=skills,
             experience=experience,
             education=education,

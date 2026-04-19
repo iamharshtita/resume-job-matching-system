@@ -17,6 +17,7 @@ class ParsedResume(BaseModel):
     id: Optional[str] = None
     position: Optional[str] = None
     experience_years: Optional[float] = None
+    english_level: Optional[str] = None
     raw_skills: list[str] = []
     experience: list[ExperienceBlock] = []
     education: list[EducationBlock] = []
@@ -31,6 +32,7 @@ class ParsedJD(BaseModel):
     preferred_skills: list[str] = []
     experience_years: Optional[int] = None
     education_requirement: Optional[str] = None
+    english_level: Optional[str] = None
     raw_text: str = ""
 
 class SkillEntry(BaseModel):
@@ -51,7 +53,7 @@ class MatchScore(BaseModel):
     jaccard_score: float
     skill_score: float
     experience_score: float
-    education_score: float
+    english_level_score: float
     title_score: float
     final_score: float
 

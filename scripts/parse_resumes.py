@@ -23,6 +23,7 @@ def main():
                 "id": row["id"],
                 "position": row["Position"],
                 "experience_years": row["Experience Years"],
+                "english_level": row.get("English Level"),
             })
             result["primary_keyword"] = row["Primary Keyword"]
             results.append(result)

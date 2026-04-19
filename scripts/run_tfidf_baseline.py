@@ -1,17 +1,15 @@
 """
-run_tfidf_baseline.py
-
-Compares the TF-IDF baseline against the full multi-agent pipeline.
-
-Ground truth:
-    same-keyword pair   -> relevance = 1
-    cross-keyword pair  -> relevance = 0
+TF-IDF baseline scorer. Use this to compare against the multi-agent pipeline.
 
 Usage:
-    python scripts/run_tfidf_baseline.py
-    python scripts/run_tfidf_baseline.py --keyword Java --other Design
-    python scripts/run_tfidf_baseline.py --n-jobs 10 --k 10
-    python scripts/run_tfidf_baseline.py --auto   (picks top 2 keywords from dataset)
+    # Score a single resume vs JD
+    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --resume resume.txt --jd job.txt
+
+    # Rank multiple resumes against one JD
+    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --rank alice.txt bob.txt --jd job.txt
+
+    # Benchmark on the parsed dataset
+    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --benchmark --auto
 """
 import sys
 import time
@@ -29,244 +27,168 @@ warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from agents.tfidf_baseline import TFIDFBaselineAgent
-from agents.orchestrator import SkillMiningOrchestrator
+from baselines.tfidf_baseline import TFIDFBaselineAgent
 
 PROCESSED = ROOT / "data" / "processed"
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="TF-IDF baseline vs multi-agent comparison")
-    parser.add_argument("--keyword",       default="Python", help="Primary keyword (relevant resumes)")
-    parser.add_argument("--other",         default="Design", help="Counter keyword (irrelevant resumes)")
-    parser.add_argument("--n-jobs",        type=int, default=5, help="Number of JDs to evaluate")
-    parser.add_argument("--n-relevant",    type=int, default=5, help="Relevant resumes per JD")
-    parser.add_argument("--n-irrelevant",  type=int, default=5, help="Irrelevant resumes per JD")
-    parser.add_argument("--k",             type=int, default=5, help="K for NDCG@K and Precision@K")
-    parser.add_argument("--auto",          action="store_true", help="Auto-pick top 2 keywords from dataset")
-    return parser.parse_args()
+def run_single(resume_path, jd_path, resume_id, jd_id):
+    resume_text = Path(resume_path).read_text(encoding="utf-8")
+    jd_text = Path(jd_path).read_text(encoding="utf-8")
+
+    agent = TFIDFBaselineAgent()
+    agent.fit([resume_text, jd_text])
+    score = agent.score_pair(resume_text, jd_text)
+
+    print(f"\nResume : {resume_path}  [{resume_id}]")
+    print(f"JD     : {jd_path}  [{jd_id}]")
+    print(f"Score  : {score:.4f}")
+
+
+def run_rank(resume_paths, jd_path, jd_id):
+    jd_text = Path(jd_path).read_text(encoding="utf-8")
+    candidates = [(Path(p).stem, Path(p).read_text(encoding="utf-8")) for p in resume_paths]
+
+    agent = TFIDFBaselineAgent()
+    agent.fit([text for _, text in candidates] + [jd_text])
+
+    results = agent.score_batch([(rid, jd_id, rtext, jd_text) for rid, rtext in candidates])
+    results.sort(key=lambda x: x["tfidf_score"], reverse=True)
+
+    print(f"\nRanking {len(candidates)} resumes against: {jd_path}\n")
+    print(f"  {'Rank':>4}  {'Resume':>20}  {'Score':>8}")
+    print("  " + "-" * 36)
+    for rank, r in enumerate(results, 1):
+        print(f"  {rank:>4}  {r['resume_id'][:20]:>20}  {r['tfidf_score']:>8.4f}")
 
 
 def auto_pick_keywords(jds):
-    """Pick the two most common keywords from the JD dataset as keyword and counter."""
     top = jds["primary_keyword"].value_counts().head(3).index.tolist()
-    keyword = top[0]
-    other   = top[1] if top[1] != keyword else top[2]
-    print(f"Auto-selected keywords: '{keyword}' (relevant) vs '{other}' (irrelevant)")
-    return keyword, other
-
-
-def load_data():
-    resumes = pd.read_parquet(PROCESSED / "resumes_parsed.parquet")
-    jds     = pd.read_parquet(PROCESSED / "jds_parsed.parquet")
-    return resumes, jds
+    kw, other = top[0], top[1]
+    print(f"Auto-selected: '{kw}' (relevant) vs '{other}' (irrelevant)")
+    return kw, other
 
 
 def build_pairs(resumes, jds, keyword, other, n_jobs, n_relevant, n_irrelevant):
-    """
-    Selects n_jobs JDs matching keyword and builds a candidate pool of
-    n_relevant same-keyword resumes + n_irrelevant other-keyword resumes.
-    Returns all (resume, JD) pairs with ground truth relevance labels.
-    """
     target_jds = jds[jds["primary_keyword"] == keyword]
-    target_jds = target_jds[target_jds["required_skills"].apply(len) >= 3]
-    target_jds = target_jds.iloc[:n_jobs]
-
+    target_jds = target_jds[target_jds["required_skills"].apply(len) >= 3].iloc[:n_jobs]
     if len(target_jds) == 0:
-        raise ValueError(f"No JDs found for keyword '{keyword}'. Check --keyword value.")
+        raise ValueError(f"No JDs found for keyword '{keyword}'.")
 
-    relevant_resumes   = resumes[resumes["primary_keyword"] == keyword].iloc[:n_relevant]
-    irrelevant_resumes = resumes[resumes["primary_keyword"] == other].iloc[:n_irrelevant]
+    rel_r = resumes[resumes["primary_keyword"] == keyword].iloc[:n_relevant]
+    irrel_r = resumes[resumes["primary_keyword"] == other].iloc[:n_irrelevant]
+    if len(irrel_r) == 0:
+        raise ValueError(f"No resumes found for counter keyword '{other}'.")
 
-    if len(irrelevant_resumes) == 0:
-        raise ValueError(f"No resumes found for counter keyword '{other}'. Check --other value.")
-
-    candidate_pool = pd.concat([relevant_resumes, irrelevant_resumes]).reset_index(drop=True)
-
+    pool = pd.concat([rel_r, irrel_r]).reset_index(drop=True)
     pairs = []
     for _, jd in target_jds.iterrows():
-        for _, resume in candidate_pool.iterrows():
+        for _, res in pool.iterrows():
             pairs.append({
-                "jd_id":       str(jd["id"]),
-                "jd_title":    jd["title"],
-                "jd_text":     jd["raw_text"],
-                "resume_id":   str(resume["id"]),
-                "resume_text": resume["raw_text"],
-                "relevance":   1 if resume["primary_keyword"] == keyword else 0,
+                "jd_id": str(jd["id"]),
+                "jd_title": jd["title"],
+                "jd_text": jd["raw_text"],
+                "resume_id": str(res["id"]),
+                "resume_text": res["raw_text"],
+                "relevance": 1 if res["primary_keyword"] == keyword else 0,
             })
-
-    return pairs, target_jds, candidate_pool
-
-
-def score_tfidf(agent, pairs):
-    """Score all pairs with TF-IDF cosine similarity."""
-    t0      = time.perf_counter()
-    batch   = [(p["resume_id"], p["jd_id"], p["resume_text"], p["jd_text"]) for p in pairs]
-    results = agent.score_batch(batch)
-    elapsed = time.perf_counter() - t0
-
-    df = pd.DataFrame(results)
-    df["relevance"] = [p["relevance"] for p in pairs]
-    df["jd_title"]  = [p["jd_title"]  for p in pairs]
-
-    print(f"TF-IDF scored {len(pairs)} pairs in {elapsed:.2f}s")
-    return df
-
-
-def score_multiagent(orchestrator, target_jds, candidate_pool):
-    """Run all pairs through the full multi-agent pipeline."""
-    t0         = time.perf_counter()
-    candidates = [(str(row["id"]), row["raw_text"]) for _, row in candidate_pool.iterrows()]
-
-    rows = []
-    for _, jd in target_jds.iterrows():
-        ranked = orchestrator.rank_candidates(
-            jd_text=jd["raw_text"],
-            candidates=candidates,
-            jd_id=str(jd["id"]),
-        )
-        for r in ranked:
-            rows.append({
-                "jd_id":       str(jd["id"]),
-                "jd_title":    jd["title"],
-                "resume_id":   r["resume_id"],
-                "ma_score":    r["final_score"],
-                "matched":     r["matched_skills"],
-                "explanation": r["explanation"],
-            })
-
-    elapsed = time.perf_counter() - t0
-    print(f"Multi-agent scored {len(rows)} pairs in {elapsed:.2f}s")
-    return pd.DataFrame(rows)
+    return pairs, target_jds, pool
 
 
 def compute_metrics(scores, relevance, k):
-    """NDCG@K, Precision@K, and Spearman for one JD's candidate list."""
-    order      = np.argsort(-scores)
-    rel_sorted = relevance[order]
-    prec_at_k  = rel_sorted[:k].sum() / k
-
+    order = np.argsort(-scores)
+    prec = relevance[order][:k].sum() / k
     try:
         ndcg = ndcg_score(relevance.reshape(1, -1), scores.reshape(1, -1), k=k)
     except Exception:
         ndcg = float("nan")
-
     try:
         rho, _ = spearmanr(scores, relevance)
     except Exception:
         rho = float("nan")
-
-    return {"ndcg": ndcg, "precision_at_k": prec_at_k, "spearman": rho}
+    return {"ndcg": ndcg, "prec": prec, "spearman": rho}
 
 
 def evaluate(df, score_col, k):
-    """Average NDCG@K, Precision@K, Spearman across all JDs."""
     ndcgs, precs, spears = [], [], []
-
     for _, group in df.groupby("jd_id"):
-        scores    = group[score_col].values.astype(float)
-        relevance = group["relevance"].values.astype(float)
-        m = compute_metrics(scores, relevance, k)
+        s = group[score_col].values.astype(float)
+        r = group["relevance"].values.astype(float)
+        m = compute_metrics(s, r, k)
         ndcgs.append(m["ndcg"])
-        precs.append(m["precision_at_k"])
+        precs.append(m["prec"])
         spears.append(m["spearman"])
-
     return {
-        f"ndcg@{k}":      round(np.nanmean(ndcgs),  4),
-        f"precision@{k}": round(np.nanmean(precs),  4),
-        "spearman":       round(np.nanmean(spears), 4),
+        f"ndcg@{k}": round(np.nanmean(ndcgs), 4),
+        f"prec@{k}": round(np.nanmean(precs), 4),
+        "spearman": round(np.nanmean(spears), 4),
     }
 
 
-def main():
-    args = parse_args()
+def run_benchmark(keyword, other, n_jobs, n_relevant, n_irrelevant, k, auto):
+    resumes = pd.read_parquet(PROCESSED / "resumes_parsed.parquet")
+    jds = pd.read_parquet(PROCESSED / "jds_parsed.parquet")
 
-    resumes, jds = load_data()
-
-    # Resolve keywords — auto mode picks from dataset, otherwise use CLI args
-    if args.auto:
+    if auto:
         keyword, other = auto_pick_keywords(jds)
-    else:
-        keyword = args.keyword
-        other   = args.other
 
-    n_jobs       = args.n_jobs
-    n_relevant   = args.n_relevant
-    n_irrelevant = args.n_irrelevant
-    k            = args.k
-
-    print("=" * 70)
-    print("TF-IDF Baseline vs Multi-Agent Pipeline")
-    print(f"Keyword: {keyword}  |  Counter: {other}")
-    print(f"JDs: {n_jobs}  |  Relevant: {n_relevant}  |  Irrelevant: {n_irrelevant}  |  K={k}")
-    print("=" * 70)
-
-    pairs, target_jds, candidate_pool = build_pairs(
-        resumes, jds, keyword, other, n_jobs, n_relevant, n_irrelevant
-    )
+    print(f"TF-IDF Benchmark  —  '{keyword}' vs '{other}'  |  K={k}")
+    pairs, _, _ = build_pairs(resumes, jds, keyword, other, n_jobs, n_relevant, n_irrelevant)
     print(f"Total pairs: {len(pairs)}\n")
 
-    # TF-IDF
-    print("--- Fitting TF-IDF vectorizer ---")
-    tfidf_agent = TFIDFBaselineAgent()
-    tfidf_agent.fit_from_parquet(
-        PROCESSED / "resumes_parsed.parquet",
-        PROCESSED / "jds_parsed.parquet",
-    )
-    tfidf_df = score_tfidf(tfidf_agent, pairs)
+    agent = TFIDFBaselineAgent()
+    agent.fit_from_parquet(PROCESSED / "resumes_parsed.parquet", PROCESSED / "jds_parsed.parquet")
 
-    # Multi-agent
-    print("\n--- Running multi-agent pipeline ---")
-    orchestrator = SkillMiningOrchestrator()
-    ma_df        = score_multiagent(orchestrator, target_jds, candidate_pool)
+    t0 = time.perf_counter()
+    batch = [(p["resume_id"], p["jd_id"], p["resume_text"], p["jd_text"]) for p in pairs]
+    res = agent.score_batch(batch)
+    print(f"Scored {len(pairs)} pairs in {time.perf_counter()-t0:.2f}s")
 
-    # Merge both sets of scores
-    merged = tfidf_df.merge(
-        ma_df[["jd_id", "resume_id", "ma_score", "matched", "explanation"]],
-        on=["jd_id", "resume_id"],
-        how="left",
-    )
-    merged["ma_score"] = merged["ma_score"].fillna(0.0)
+    df = pd.DataFrame(res)
+    df["relevance"] = [p["relevance"] for p in pairs]
+    df["jd_title"] = [p["jd_title"] for p in pairs]
 
-    # Metrics
-    tfidf_metrics = evaluate(merged, "tfidf_score", k)
-    ma_metrics    = evaluate(merged, "ma_score",    k)
+    metrics = evaluate(df, "tfidf_score", k)
+    for m, v in metrics.items():
+        print(f"  {m:<14} {v:.4f}")
 
-    print(f"\n{'Metric':<20}  {'TF-IDF':>10}  {'Multi-Agent':>12}")
-    print("-" * 46)
-    for metric in tfidf_metrics:
-        tf    = tfidf_metrics[metric]
-        ma    = ma_metrics[metric]
-        delta = ma - tf
-        arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "–")
-        print(f"{metric:<20}  {tf:>10.4f}  {ma:>12.4f}  {arrow} {abs(delta):.4f}")
+    out = ROOT / "outputs" / "results" / "tfidf_benchmark.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    print(f"\nSaved → {out}")
 
-    # Per-JD breakdown
-    print(f"\n--- Per-JD ranking preview (top {k} candidates) ---")
-    for _, group in merged.groupby("jd_id"):
-        jd_title = group["jd_title"].iloc[0][:50]
-        print(f"\nJD: {jd_title}")
-        top = group.sort_values("ma_score", ascending=False).head(k)
-        print(f"  {'Resume':>12}  {'Rel':>3}  {'TF-IDF':>7}  {'MA':>7}  {'Matched':<25}  Explanation")
-        print("  " + "-" * 95)
-        for _, row in top.iterrows():
-            matched = ", ".join(row["matched"][:3]) if isinstance(row["matched"], list) else ""
-            expl    = str(row["explanation"])[:50] + "…" if len(str(row["explanation"])) > 50 else str(row["explanation"])
-            print(
-                f"  {row['resume_id'][:12]:>12}  "
-                f"{int(row['relevance']):>3}  "
-                f"{row['tfidf_score']:>7.4f}  "
-                f"{row['ma_score']:>7.4f}  "
-                f"{matched:<25}  "
-                f"{expl}"
-            )
 
-    # Save
-    out_path = ROOT / "outputs" / "results" / "baseline_comparison.csv"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    merged.drop(columns=["jd_text", "resume_text"], errors="ignore").to_csv(out_path, index=False)
-    print(f"\nResults saved to {out_path}")
+def parse_args():
+    p = argparse.ArgumentParser(description="TF-IDF baseline scorer")
+    p.add_argument("--resume",       type=str)
+    p.add_argument("--jd",           type=str)
+    p.add_argument("--resume-id",    type=str, default="resume-001")
+    p.add_argument("--jd-id",        type=str, default="jd-001")
+    p.add_argument("--rank",         type=str, nargs="+", metavar="RESUME")
+    p.add_argument("--benchmark",    action="store_true")
+    p.add_argument("--auto",         action="store_true")
+    p.add_argument("--keyword",      type=str, default="Python")
+    p.add_argument("--other",        type=str, default="Design")
+    p.add_argument("--n-jobs",       type=int, default=5)
+    p.add_argument("--n-relevant",   type=int, default=5)
+    p.add_argument("--n-irrelevant", type=int, default=5)
+    p.add_argument("--k",            type=int, default=5)
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+
+    if args.benchmark:
+        run_benchmark(args.keyword, args.other, args.n_jobs,
+                      args.n_relevant, args.n_irrelevant, args.k, args.auto)
+    elif args.rank:
+        if not args.jd:
+            print("Error: --rank requires --jd"); raise SystemExit(1)
+        run_rank(args.rank, args.jd, args.jd_id)
+    elif args.resume:
+        if not args.jd:
+            print("Error: --resume requires --jd"); raise SystemExit(1)
+        run_single(args.resume, args.jd, args.resume_id, args.jd_id)
+    else:
+        print("Provide --resume/--jd, --rank/--jd, or --benchmark. Use -h for help.")

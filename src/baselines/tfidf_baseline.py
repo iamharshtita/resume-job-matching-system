@@ -24,7 +24,7 @@ from loguru import logger
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from .base_agent import BaseAgent
+from agents.base_agent import BaseAgent
 
 
 class TFIDFBaselineAgent(BaseAgent):

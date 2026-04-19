@@ -24,6 +24,7 @@ def main():
                 "company": row["Company Name"],
                 "exp_years_raw": row["Exp Years"],
                 "primary_keyword": row["Primary Keyword"],
+                "english_level": row.get("English Level"),
             })
             results.append(result)
         except Exception as e:

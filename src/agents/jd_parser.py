@@ -229,6 +229,7 @@ class JDParserAgent(BaseAgent):
             preferred_skills=preferred_skills,
             experience_years=exp_years,
             education_requirement=education_requirement,
+            english_level=input_data.get("english_level"),
             primary_keyword=input_data.get("primary_keyword"),
             raw_text=text,
         )
