@@ -72,7 +72,7 @@ from .resume_parser import ResumeParserAgent
 from .jd_parser import JDParserAgent
 from .skill_miner import SkillMiningAgent
 from .matcher import MatchingAgent
-# from .ranker import RankingExplanationAgent  # TODO: enable when ranker is ready
+from .ranker import RankingExplanationAgent
 
 
 class SkillMiningOrchestrator(BaseAgent):
@@ -83,7 +83,7 @@ class SkillMiningOrchestrator(BaseAgent):
         self.jd_parser     = JDParserAgent()
         self.skill_miner   = SkillMiningAgent()
         self.matcher       = MatchingAgent()
-        # self.ranker        = RankingExplanationAgent()  # TODO: enable when ranker is ready
+        self.ranker        = RankingExplanationAgent()
 
     # Single pair processing
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,14 +233,13 @@ class SkillMiningOrchestrator(BaseAgent):
 
         match_results.sort(key=lambda x: x.get("final_score", 0.0), reverse=True)
 
-        # TODO: ranker when ready
-        # ranked_output = self.ranker.process({
-        #     "match_results":      match_results,
-        #     "resume_skills_map":  resume_skills_map,
-        #     "jd_skills":          jd_skills,
-        #     "jd_exp_years":       parsed_jd.get("experience_years"),
-        #     "jd_education_req":   parsed_jd.get("education_requirement"),
-        # })
+        ranked_output = self.ranker.process({
+            "match_results":      match_results,
+            "resume_skills_map":  resume_skills_map,
+            "jd_skills":          jd_skills,
+            "jd_exp_years":       parsed_jd.get("experience_years"),
+            "jd_education_req":   parsed_jd.get("education_requirement"),
+        })
 
         logger.info(f"Ranking complete — {len(match_results)} candidates scored")
-        return match_results
+        return ranked_output["ranked"]
