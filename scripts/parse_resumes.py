@@ -7,11 +7,45 @@ from tqdm import tqdm
 from agents.resume_parser import ResumeParserAgent
 from config import RESUMES_RAW, PROCESSED_DIR
 
+PRIMARY_KEYWORD_COL = 'Primary Keyword'
+
 def main():
     print(f"Loading resumes...")
     df = pd.read_parquet(RESUMES_RAW)
-    sample = df.reset_index(drop=True)
-    print(f"Processing {len(sample)} resumes...")
+
+    # Define target keywords
+    technical_roles = [
+        '.NET', 'C++', 'DevOps', 'Flutter', 'Golang', 'Java',
+        'JavaScript', 'Node.js', 'PHP', 'Python', 'Ruby', 'Scala',
+        'SQL', 'iOS', 'Unity'
+    ]
+    data_analytics = ['Data Analyst', 'Data Engineer', 'Data Science', 'Business Analyst']
+    qa_testing = ['QA', 'QA Automation']
+
+    target_keywords = technical_roles + data_analytics + qa_testing
+
+    # Filter to only target keywords
+    print(f"Original dataset: {len(df):,} resumes")
+    df_filtered = df[df[PRIMARY_KEYWORD_COL].isin(target_keywords)].copy()
+    print(f"After keyword filter: {len(df_filtered):,} resumes")
+
+    # Sample 50% of QA records
+    qa_mask = df_filtered[PRIMARY_KEYWORD_COL] == 'QA'
+    qa_records = df_filtered[qa_mask]
+    non_qa_records = df_filtered[~qa_mask]
+
+    # Take 50% sample of QA
+    qa_sample = qa_records.sample(frac=0.5, random_state=42)
+    print(f"  QA records: {len(qa_records):,} → sampled to {len(qa_sample):,} (50%)")
+
+    # Combine back together
+    sample = pd.concat([non_qa_records, qa_sample]).reset_index(drop=True)
+    print(f"Final dataset for processing: {len(sample):,} resumes")
+    print("  Breakdown by keyword:")
+    for keyword in sorted(sample[PRIMARY_KEYWORD_COL].value_counts().index):
+        count = (sample[PRIMARY_KEYWORD_COL] == keyword).sum()
+        print(f"    {keyword:20s}: {count:>6,}")
+    print()
 
     agent = ResumeParserAgent()
     results = []
@@ -25,7 +59,7 @@ def main():
                 "experience_years": row["Experience Years"],
                 "english_level": row.get("English Level"),
             })
-            result["primary_keyword"] = row["Primary Keyword"]
+            result["primary_keyword"] = row[PRIMARY_KEYWORD_COL]
             results.append(result)
         except Exception as e:
             print(f"  Skipped {row['id']}: {e}")
