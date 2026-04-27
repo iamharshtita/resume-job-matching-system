@@ -40,15 +40,18 @@ Raw Resume Text          Raw JD Text
 | English level | 0.20 | Ordinal scale (no_english → fluent) |
 | Title overlap | 0.10 | Jaccard on position tokens |
 
-**Novel contribution — Skill-IDF weighting** (`scripts/test_skill_idf.py`):  
-Rare skills in the JD corpus receive higher IDF weight than ubiquitous ones.  
-Evaluated against a TF-IDF baseline and GPT-4 recruiter scores:
+**Novel contribution — Skill-IDF weighting**:  
+Rare skills in the JD corpus receive higher IDF weight than common ones, integrated into the MatchingAgent's semantic scoring.
 
-| Metric | TF-IDF | Skill-IDF | Combined |
-|--------|--------|-----------|----------|
-| NDCG@5 | 0.732 | **0.894** | 0.882 |
-| Precision@5 | 0.724 | **1.000** | 0.916 |
-| Spearman vs GPT | 0.175 | 0.440 | **0.615** |
+**Evaluation results** (Python keyword, 5 JDs × 20 candidates):
+
+| Method | NDCG@5 | Precision@5 | Recall@5 | MAP | Time(s) |
+|--------|--------|-------------|----------|-----|---------|
+| TF-IDF baseline | 0.687 | 0.600 | 0.600 | 0.548 | 0.01 |
+| Skill-IDF baseline | 0.544 | 1.000 | 1.000 | 1.000 | 0.02 |
+| **Multi-Agent+IDF** | **0.856** | **0.800** | **0.800** | **0.770** | 8.60 |
+
+**Multi-Agent+IDF achieves 24.6% improvement** over TF-IDF baseline on NDCG@5.
 
 ---
 
@@ -76,15 +79,18 @@ resume-job-matching-system/
 │   ├── schemas/models.py           # Pydantic data models
 │   └── config.py                   # Weights, constants, paths
 ├── scripts/
-│   ├── parse_resumes.py            # Batch parse all resumes
-│   ├── parse_jds.py                # Batch parse all JDs
-│   ├── sample_dataset.py           # Filter dataset by keyword
+│   ├── parse_resumes.py            # Batch parse all resumes (filters to 21 keywords)
+│   ├── parse_jds.py                # Batch parse all JDs (filters to 21 keywords)
+│   ├── compute_idf_weights.py      # Pre-compute skill IDF weights (run once)
 │   ├── run_full_pipeline.py        # Multi-agent pipeline (single pair / batch)
-│   ├── run_tfidf_baseline.py       # TF-IDF baseline scorer
-│   └── run_skill_idf.py            # Skill-IDF baseline scorer
-├── tests/
-│   └── test_agents/
-├── outputs/results/                # Evaluation CSVs
+│   ├── evaluate_all.py             # Unified evaluation (all methods, same test set)
+│   ├── visualize_results.py        # Generate performance charts & tables
+│   ├── fairness_analysis.py        # Bias analysis (experience/category)
+│   ├── skill_clustering.py         # t-SNE visualization of skill embeddings
+│   └── ablation_study.py           # Component contribution analysis
+├── outputs/
+│   ├── results/                    # CSV files (comparison_results, detailed_scores)
+│   └── visualizations/             # 12 PNG charts for academic presentation
 └── requirements.txt
 ```
 
@@ -114,7 +120,7 @@ pip install -r requirements.txt
 
 ### Step 1 — Parse the dataset (one-time)
 
-Parse all raw resumes and JDs into structured parquet files:
+Parse all raw resumes and JDs into structured parquet files (filters to 21 technical keywords):
 
 ```bash
 PYTHONPATH=src python3 scripts/parse_resumes.py
@@ -122,21 +128,16 @@ PYTHONPATH=src python3 scripts/parse_jds.py
 ```
 
 Outputs:
-- `data/processed/resumes_parsed.parquet`
-- `data/processed/jds_parsed.parquet`
+- `data/processed/resumes_parsed.parquet` (113,905 resumes)
+- `data/processed/jds_parsed.parquet` (94,558 JDs)
 
-### Step 2 — (Optional) Sample a keyword-filtered subset
+**Step 2 — Pre-compute IDF weights (one-time)**
 
 ```bash
-PYTHONPATH=src python3 scripts/sample_dataset.py \
-    --resume-keywords javascript \
-    --jd-keywords javascript \
-    --resume-limit 100 \
-    --jd-limit 100 \
-    --output-tag js
+PYTHONPATH=src python3 scripts/compute_idf_weights.py
 ```
 
-Outputs to `data/processed/samples/`.
+Generates `data/processed/skill_idf.json` with 47,612 skill weights.
 
 ### Step 3 — Run the full pipeline
 
@@ -263,44 +264,72 @@ for candidate in ranked:
 
 ---
 
-## Evaluation Scripts
+## Evaluation & Visualization
 
-### TF-IDF baseline comparison
-
-```bash
-PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --auto --k 5
-```
-
-`--auto` picks the two most common keywords from the parsed dataset automatically.
-
-### Skill-IDF evaluation
-
-Requires the JS sample to exist (`scripts/sample_dataset.py --output-tag js` first):
+### Unified evaluation (all methods)
 
 ```bash
-PYTHONPATH=src python3 scripts/run_skill_idf.py --k 5
+PYTHONPATH=src python3 scripts/evaluate_all.py --keyword Python --n-jobs 5 --k 5
 ```
 
-Prints NDCG@5, Precision@5, and Spearman correlation for TF-IDF vs Skill-IDF vs Combined.
+Runs TF-IDF, Skill-IDF, and Multi-Agent+IDF on the same test set. Outputs:
+- `outputs/results/comparison_results.csv`
+- `outputs/results/detailed_scores.csv`
+
+### Generate visualizations
+
+```bash
+PYTHONPATH=src python3 scripts/visualize_results.py
+```
+
+Creates 4 core charts (metric comparison, NDCG@5, score distributions, tables) in `outputs/visualizations/`.
+
+### Academic enhancements
+
+**Fairness analysis** — score distribution by experience level and keyword category:
+```bash
+PYTHONPATH=src python3 scripts/fairness_analysis.py
+```
+
+**Skill clustering** — t-SNE visualization showing related skills cluster together:
+```bash
+PYTHONPATH=src python3 scripts/skill_clustering.py
+```
+
+**Ablation study** — measure contribution of each component (IDF, experience, title):
+```bash
+PYTHONPATH=src python3 scripts/ablation_study.py --n-jobs 3 --k 5
+```
+
+All outputs saved to `outputs/visualizations/` (12 charts total).
 
 ---
 
 ## Dataset
 
-The system was built and evaluated on the **Djinni dataset** (Ukrainian tech job market):
-- 210,250 developer resumes
-- 141,897 job descriptions
-- Fields: raw CV text, position, experience years, English level, primary keyword
+**Djinni dataset** (Ukrainian tech job market, HuggingFace):
+- 210,250 developer resumes → filtered to 113,905 (21 technical keywords)
+- 141,897 job descriptions → filtered to 94,558 (21 technical keywords)
+- Fields: raw text, position, experience years, English level, primary keyword
 
-Raw data goes in `data/raw/`. Paths are configured in `src/config.py`.
+**Keywords**: .NET, C++, DevOps, Flutter, Golang, Java, JavaScript, Node.js, PHP, Python, Ruby, Scala, SQL, iOS, Unity, Data Analyst, Data Engineer, Data Science, Business Analyst, QA (50% sampled), QA Automation.
+
+Paths configured in `src/config.py`. No LLM API required — uses SentenceTransformers (all-MiniLM-L6-v2, 80MB).
+
+---
+
+## Key Features
+
+✅ **No LLM API required** — Uses SentenceTransformers for embeddings (runs locally)  
+✅ **Skill-IDF weighting** — Rare skills weighted higher than common ones  
+✅ **Semantic matching** — Cosine similarity over skill embeddings (not exact match)  
+✅ **FAISS indexing** — Fast similarity search over 25,963 canonical skills  
+✅ **Explainable rankings** — Plain-English explanations per candidate  
+✅ **Fairness validated** — No significant bias across experience levels (ANOVA p=0.806)  
+✅ **Academic rigor** — 12 visualizations, ablation study, clustering analysis
 
 ---
 
 ## Team
-
-- **Member 1**: Data & Preprocessing, Resume Parser Agent
-- **Member 2**: Skill Mining Agent, O*NET Integration
-- **Member 3**: Matching Agent, Scoring System, Baselines
-- **Member 4**: Ranking & Explanation Agent, Evaluation
 
 *CSE 572 — Data Mining, Arizona State University*
