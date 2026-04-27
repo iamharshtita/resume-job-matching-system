@@ -5,14 +5,16 @@ Skill score — semantic overlap (primary):
     For each JD skill vector, find the highest cosine similarity to any
     resume skill vector, weighted by that resume skill's confidence.
     Similarities below _SEMANTIC_THRESHOLD are treated as zero.
-    The mean across all JD skills is the skill score.
+    IDF-weighted: Rare skills count more than common skills.
 Falls back to exact canonical matching when skill vectors are absent.
 """
+import json
 import numpy as np
-from typing import Dict, Any, Set
+from pathlib import Path
+from typing import Dict, Any, Set, Optional
 
 from .base_agent import BaseAgent
-from config import WEIGHTS, SKILL_WEIGHTS, ENGLISH_LEVELS
+from config import WEIGHTS, SKILL_WEIGHTS, ENGLISH_LEVELS, PROCESSED_DIR
 from schemas.models import MatchScore
 
 # Cosine similarity below this is treated as noise
@@ -23,6 +25,17 @@ class MatchingAgent(BaseAgent):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("MatchingAgent", config)
+        self._idf_weights: Optional[Dict[str, float]] = None
+        self._load_idf_weights()
+
+    def _load_idf_weights(self):
+        """Load pre-computed IDF weights from skill_idf.json"""
+        idf_path = PROCESSED_DIR / "skill_idf.json"
+        if idf_path.exists():
+            with open(idf_path, 'r') as f:
+                self._idf_weights = json.load(f)
+        else:
+            self._idf_weights = {}
 
     """
     Input:
@@ -94,7 +107,7 @@ class MatchingAgent(BaseAgent):
         """
         Semantic overlap using pre-computed skill embeddings (primary path).
         Falls back to exact canonical matching when vectors are absent.
-        Mean of all metric used here
+        IDF-weighted: Rare skills contribute more to the score.
         """
         r_vecs = resume_skills.get("skill_vectors")
         j_vecs = jd_skills.get("skill_vectors")
@@ -104,6 +117,7 @@ class MatchingAgent(BaseAgent):
                 np.array(r_vecs, dtype=np.float32),
                 np.array(j_vecs, dtype=np.float32),
                 resume_skills,
+                jd_skills,
             )
 
         # Fallback
@@ -125,11 +139,13 @@ class MatchingAgent(BaseAgent):
         r_vecs: "np.ndarray",
         j_vecs: "np.ndarray",
         resume_skills: dict,
+        jd_skills: dict,
     ) -> float:
         """
         For each JD skill vector j_i, compute:
         best_i = max over resume skills of (conf_r * cosine_sim(r, j_i))
-        Return mean of all JD skills.
+        Then weight by IDF: rare JD skills contribute more.
+        Return IDF-weighted mean across all JD skills.
         """
         if r_vecs.shape[0] == 0 or j_vecs.shape[0] == 0:
             return 0.0
@@ -154,7 +170,19 @@ class MatchingAgent(BaseAgent):
         # best weighted match per JD skill
         best = weighted.max(axis=0)
 
-        return float(np.clip(best.mean(), 0.0, 1.0))
+        # Apply IDF weighting to JD skills
+        jd_skill_names = [e.get("canonical", "").lower() for e in jd_skills.get("skills", [])]
+        idf_weights = np.array([
+            self._idf_weights.get(skill, 1.0) for skill in jd_skill_names
+        ], dtype=np.float32)
+
+        # IDF-weighted score: rare skills matter more
+        if idf_weights.sum() > 0:
+            idf_weighted_score = (best * idf_weights).sum() / idf_weights.sum()
+        else:
+            idf_weighted_score = best.mean()
+
+        return float(np.clip(idf_weighted_score, 0.0, 1.0))
 
     def _skill_confidence_map(self, mined_skills: dict) -> Dict[str, float]:
         """Return {canonical: confidence} for all skills in a MinedSkills dict."""
