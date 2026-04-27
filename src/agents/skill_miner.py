@@ -116,7 +116,8 @@ class SkillMiningAgent(BaseAgent):
 
         logger.info("Loading skills taxonomy...")
         df = pd.read_csv(SKILLS_TAXONOMY_FILE)
-        df['skill'] = df['skill'].str.replace(r'[\u200b\u200c\u200d\ufeff]', '', regex=True).str.strip()
+        # Remove zero-width and BOM characters (compatible with PyArrow regex engine)
+        df['skill'] = df['skill'].str.replace('[\u200b\u200c\u200d\ufeff]', '', regex=True).str.strip()
         df = df[df['skill'].str.len() > 0].drop_duplicates('skill')
         self._skill_names = df['skill'].tolist()
         self._skill_categories = dict(zip(df['skill'], df['category']))
@@ -218,7 +219,8 @@ class SkillMiningAgent(BaseAgent):
         seen = set()
 
         for skill, emb in zip(skills, embeddings):
-            skill_clean = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', skill).strip()
+            # Remove zero-width and BOM characters
+            skill_clean = re.sub('[\u200b\u200c\u200d\ufeff]', '', skill).strip()
             if not skill_clean:
                 continue
 
