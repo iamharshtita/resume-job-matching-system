@@ -102,25 +102,22 @@ class MatchingAgent(BaseAgent):
         )
         return result.model_dump()
 
-    # Calculate skill score
     def _skill_score(self, resume_skills: dict, jd_skills: dict) -> float:
-        """
-        Semantic overlap using pre-computed skill embeddings (primary path).
-        Falls back to exact canonical matching when vectors are absent.
-        IDF-weighted: Rare skills contribute more to the score.
-        """
         r_vecs = resume_skills.get("skill_vectors")
         j_vecs = jd_skills.get("skill_vectors")
 
         if r_vecs and j_vecs:
-            return self._semantic_overlap(
+            semantic = self._semantic_overlap(
                 np.array(r_vecs, dtype=np.float32),
                 np.array(j_vecs, dtype=np.float32),
                 resume_skills,
-                jd_skills,
             )
+            # blend semantic similarity with IDF-weighted string matching
+            # semantic handles meaning, skill-idf handles rarity — different signals
+            idf = self._skill_idf_score(resume_skills, jd_skills)
+            return float(np.clip(0.7 * semantic + 0.3 * idf, 0.0, 1.0))
 
-        # Fallback
+        # fallback when vectors are missing
         resume_map = self._skill_confidence_map(resume_skills)
         required   = self._canonical_set(jd_skills, source_filter="required")
         preferred  = self._canonical_set(jd_skills, source_filter="preferred")
@@ -139,18 +136,10 @@ class MatchingAgent(BaseAgent):
         r_vecs: "np.ndarray",
         j_vecs: "np.ndarray",
         resume_skills: dict,
-        jd_skills: dict,
     ) -> float:
-        """
-        For each JD skill vector j_i, compute:
-        best_i = max over resume skills of (conf_r * cosine_sim(r, j_i))
-        Then weight by IDF: rare JD skills contribute more.
-        Return IDF-weighted mean across all JD skills.
-        """
         if r_vecs.shape[0] == 0 or j_vecs.shape[0] == 0:
             return 0.0
 
-        # confidence vector
         confs = np.array(
             [e.get("confidence", 1.0) for e in resume_skills.get("skills", [])],
             dtype=np.float32,
@@ -158,31 +147,32 @@ class MatchingAgent(BaseAgent):
         if len(confs) != r_vecs.shape[0]:
             confs = np.ones(r_vecs.shape[0], dtype=np.float32)
 
-        # cosine similarity
-        sim = r_vecs @ j_vecs.T
-
-        # zero out sub-threshold
-        sim = np.where(sim >= _SEMANTIC_THRESHOLD, sim, 0.0)
-
-        # weight each resume skill's similarity by its confidence
+        sim      = r_vecs @ j_vecs.T
+        sim      = np.where(sim >= _SEMANTIC_THRESHOLD, sim, 0.0)
         weighted = sim * confs[:, None]
+        best     = weighted.max(axis=0)
 
-        # best weighted match per JD skill
-        best = weighted.max(axis=0)
+        return float(np.clip(best.mean(), 0.0, 1.0))
 
-        # Apply IDF weighting to JD skills
-        jd_skill_names = [e.get("canonical", "").lower() for e in jd_skills.get("skills", [])]
-        idf_weights = np.array([
-            self._idf_weights.get(skill, 1.0) for skill in jd_skill_names
-        ], dtype=np.float32)
+    def _skill_idf_score(self, resume_skills: dict, jd_skills: dict) -> float:
+        # string-level IDF matching — rare JD skills that the resume has count more
+        if not self._idf_weights:
+            return 0.0
 
-        # IDF-weighted score: rare skills matter more
-        if idf_weights.sum() > 0:
-            idf_weighted_score = (best * idf_weights).sum() / idf_weights.sum()
-        else:
-            idf_weighted_score = best.mean()
+        resume_set    = {e.get("canonical", "").lower() for e in resume_skills.get("skills", [])}
+        jd_canonicals = [e.get("canonical", "").lower() for e in jd_skills.get("skills", [])]
 
-        return float(np.clip(idf_weighted_score, 0.0, 1.0))
+        if not jd_canonicals:
+            return 0.0
+
+        total_idf = matched_idf = 0.0
+        for skill in jd_canonicals:
+            w = self._idf_weights.get(skill, 1.0)
+            total_idf += w
+            if skill in resume_set:
+                matched_idf += w
+
+        return matched_idf / total_idf if total_idf > 0 else 0.0
 
     def _skill_confidence_map(self, mined_skills: dict) -> Dict[str, float]:
         """Return {canonical: confidence} for all skills in a MinedSkills dict."""

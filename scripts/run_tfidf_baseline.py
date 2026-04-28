@@ -3,13 +3,13 @@ TF-IDF baseline scorer. Use this to compare against the multi-agent pipeline.
 
 Usage:
     # Score a single resume vs JD
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --resume resume.txt --jd job.txt
+    python3 scripts/run_tfidf_baseline.py --resume resume.txt --jd job.txt
 
     # Rank multiple resumes against one JD
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --rank alice.txt bob.txt --jd job.txt
+    python3 scripts/run_tfidf_baseline.py --rank alice.txt bob.txt --jd job.txt
 
     # Benchmark on the parsed dataset
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --benchmark --auto
+    python3 scripts/run_tfidf_baseline.py --benchmark --auto
 """
 import sys
 import time

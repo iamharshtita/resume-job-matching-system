@@ -7,7 +7,7 @@ Analyzes:
 3. Statistical tests for systematic bias
 
 Usage:
-    PYTHONPATH=src python3 scripts/fairness_analysis.py
+    python3 src/evaluation/fairness_analysis.py
 """
 import sys
 from pathlib import Path
@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from config import PROCESSED_DIR, OUTPUT_DIR

@@ -9,7 +9,7 @@ Runs:
 Outputs: comparison_results.csv with NDCG@5, Precision@5, Recall@5, MAP
 
 Usage:
-    PYTHONPATH=src python3 scripts/evaluate_all.py --n-jobs 5 --n-candidates 20 --k 5
+    python3 src/evaluation/evaluate_all.py --n-jobs 5 --n-candidates 20 --k 5
 """
 import sys
 import time
@@ -22,7 +22,7 @@ import pandas as pd
 from scipy.stats import spearmanr
 from sklearn.metrics import ndcg_score
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from baselines.tfidf_baseline import TFIDFBaselineAgent
@@ -233,12 +233,28 @@ def main():
     # Load data
     print(f"\nLoading datasets...")
     resumes_df = pd.read_parquet(PROCESSED_DIR / "resumes_parsed.parquet")
-    jds_df = pd.read_parquet(PROCESSED_DIR / "jds_parsed.parquet")
-    print(f"  Resumes: {len(resumes_df):,}")
-    print(f"  JDs: {len(jds_df):,}")
+    jds_df     = pd.read_parquet(PROCESSED_DIR / "jds_parsed.parquet")
+    print(f"resumes: {len(resumes_df):,} | jds: {len(jds_df):,}")
+
+    # use held-out test split if it exists (created by finetune_embeddings.py)
+    import json
+    split_path = ROOT / "data" / "test" / "test_split.json"
+    if split_path.exists():
+        split = json.load(open(split_path))
+        test_j_ids = set(split["jd_test_ids"].get(args.keyword, []))
+        # keep resumes from ALL keywords in the test split so irrelevant candidates exist
+        all_test_r_ids = set(rid for ids in split["resume_test_ids"].values() for rid in ids)
+        if all_test_r_ids and test_j_ids:
+            resumes_df = resumes_df[resumes_df['id'].astype(str).isin(all_test_r_ids)]
+            jds_df     = jds_df[jds_df['id'].astype(str).isin(test_j_ids)]
+            print(f"using held-out test split: {len(resumes_df):,} resumes, {len(jds_df):,} jds")
+        else:
+            print("no test split found for this keyword, using full dataset")
+    else:
+        print("no test_split.json found - run finetune_embeddings.py first for proper train/test split")
 
     # Build test set
-    print(f"\nBuilding test set (keyword: {args.keyword})...")
+    print(f"\nbuilding test set (keyword: {args.keyword})...")
     pairs = build_test_set(
         resumes_df, jds_df, args.keyword,
         args.n_jobs, args.n_relevant, args.n_irrelevant

@@ -9,7 +9,7 @@ Tests:
 5. Skill score only
 
 Usage:
-    PYTHONPATH=src python3 scripts/ablation_study.py --n-jobs 5 --k 5
+    python3 src/evaluation/ablation_study.py --n-jobs 5 --k 5
 """
 import sys
 import time
@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import ndcg_score
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from agents.orchestrator import SkillMiningOrchestrator

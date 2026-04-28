@@ -6,7 +6,7 @@ IDF(skill) = log((N + 1) / (df + 1)) + 1.0
 where N = total JDs, df = JDs containing this skill
 
 Usage:
-    PYTHONPATH=src python3 scripts/compute_idf_weights.py
+    python3 src/preprocess/compute_idf_weights.py
 """
 import sys
 import json
@@ -16,7 +16,7 @@ from collections import Counter
 
 import pandas as pd
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from config import PROCESSED_DIR
@@ -62,21 +62,13 @@ def main():
     print(f"\nSaved IDF weights to: {output_path}")
     print(f"Total skills: {len(idf_weights):,}")
 
-    # Show statistics
     idf_values = list(idf_weights.values())
-    print(f"\nIDF Statistics:")
-    print(f"  Min:  {min(idf_values):.4f}")
-    print(f"  Max:  {max(idf_values):.4f}")
-    print(f"  Mean: {sum(idf_values)/len(idf_values):.4f}")
+    print(f"min={min(idf_values):.4f}  max={max(idf_values):.4f}  mean={sum(idf_values)/len(idf_values):.4f}")
 
-    # Show examples
-    print(f"\nExample IDF weights (sorted by frequency):")
+    print("\ntop 10 most common skills:")
     sorted_skills = sorted(df_counts.items(), key=lambda x: -x[1])
-    print(f"  {'Skill':<30} {'Frequency':>10} {'IDF':>8}")
-    print(f"  {'-'*30} {'-'*10} {'-'*8}")
     for skill, freq in sorted_skills[:10]:
-        idf = idf_weights[skill]
-        print(f"  {skill:<30} {freq:>10,} {idf:>8.4f}")
+        print(f"  {skill}  freq={freq:,}  idf={idf_weights[skill]:.4f}")
 
 if __name__ == "__main__":
     main()

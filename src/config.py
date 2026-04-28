@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# prevents FAISS segfault on Mac caused by OpenMP threading conflicts
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
@@ -36,7 +40,13 @@ HF_JDS_DATASET = os.getenv(
 HF_PARQUET_PATH = os.getenv("HF_PARQUET_PATH", "data/train-00000-of-00001.parquet")
 
 # Models
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+# use fine-tuned model if available, otherwise fall back to base model
+_FINETUNED_MODEL_PATH = DATA_DIR / "models" / "skill_embedding_model"
+EMBEDDING_MODEL = (
+    str(_FINETUNED_MODEL_PATH)
+    if _FINETUNED_MODEL_PATH.exists()
+    else os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+)
 ENGLISH_LEVELS = {
     "no_english":   0,
     "pre":          1,

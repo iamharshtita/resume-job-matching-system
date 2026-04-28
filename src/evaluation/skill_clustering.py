@@ -5,7 +5,7 @@ Shows that semantically similar skills cluster together in embedding space,
 validating the skill canonicalization and FAISS-based matching approach.
 
 Usage:
-    PYTHONPATH=src python3 scripts/skill_clustering.py
+    python3 src/evaluation/skill_clustering.py
 """
 import sys
 import json
@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.manifold import TSNE
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from config import PROCESSED_DIR, OUTPUT_DIR

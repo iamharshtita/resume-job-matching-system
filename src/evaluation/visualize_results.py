@@ -7,7 +7,7 @@ Creates:
 3. Score distribution histograms
 
 Usage:
-    python scripts/visualize_results.py
+    python3 src/evaluation/visualize_results.py
 """
 import sys
 from pathlib import Path
@@ -16,7 +16,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from config import OUTPUT_DIR
@@ -174,7 +174,7 @@ def main():
 
     if not comparison_path.exists():
         print(f"Error: {comparison_path} not found.")
-        print("Run scripts/evaluate_all.py first.")
+        print("Run src/evaluation/evaluate_all.py first.")
         sys.exit(1)
 
     comparison_df = pd.read_csv(comparison_path)

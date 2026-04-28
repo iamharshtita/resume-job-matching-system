@@ -1,52 +1,24 @@
-# Core Dependencies
 python-dotenv==1.0.0
-
-# Agent Framework
-# strands-agents-sdk==0.1.0  # Uncomment when available
-
-# NLP & Text Processing
-spacy==3.7.2
-regex==2023.12.25
-dateparser==1.2.0
 pydantic==2.5.3
-
-# Embeddings & Similarity
-sentence-transformers==2.3.1
-faiss-cpu==1.7.4
-transformers==4.36.2
-torch==2.1.2
-
-# Data Processing
-pandas==2.1.4
-numpy==1.26.3
-pyarrow==14.0.2
-
-# Hugging face dataset
-datasets>=2.18
-
-# Machine Learning
-scikit-learn==1.4.0
-scipy==1.12.0
-
-# LLM Integration (choose one)
-openai==1.6.1
-# ollama-python==0.1.0  # Uncomment for local models
-
-# Retrieval (optional alternative to FAISS)
-# chromadb==0.4.22
-
-# Utilities
 loguru==0.7.2
 tqdm==4.66.1
-python-dateutil>=2.9
 
-# Development
-jupyter==1.0.0
+sentence-transformers>=2.3.1
+faiss-cpu>=1.7.4
+transformers>=4.36.2
+torch>=2.1.2
+
+pandas==2.1.4
+numpy>=1.26.3
+pyarrow>=14.0.2
+scikit-learn>=1.4.0
+scipy>=1.12.0
+rank-bm25==0.2.2
+
+huggingface_hub
+datasets>=2.18
+
+matplotlib>=3.8.2
+seaborn>=0.13.1
+
 pytest==7.4.4
-black==23.12.1
-ruff==0.1.9
-ipykernel==6.28.0
-
-# Visualization (optional)
-matplotlib==3.8.2
-seaborn==0.13.1
