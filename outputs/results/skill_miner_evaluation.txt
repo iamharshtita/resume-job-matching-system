@@ -1,0 +1,42 @@
+SKILL MINER EVALUATION
+========================================
+
+COVERAGE
+----------------------------------------
+total resumes evaluated: 250
+resumes with 0 skills:   2 (0.8%)
+resumes with >= 3 skills: 238 (95.2%)
+resumes with >= 5 skills: 218 (87.2%)
+avg skills per resume:    13.78
+avg explicit:             4.60
+avg latent:               9.18
+avg confidence:           0.755
+
+by keyword:
+  .NET                 avg_skills=15.9  coverage=96%  avg_conf=0.774
+  DevOps               avg_skills=16.1  coverage=96%  avg_conf=0.757
+  Java                 avg_skills=13.6  coverage=96%  avg_conf=0.745
+  JavaScript           avg_skills=11.2  coverage=96%  avg_conf=0.762
+  Python               avg_skills=12.1  coverage=92%  avg_conf=0.735
+
+DOMAIN PRECISION (mined skills matching expected domain skills)
+----------------------------------------
+expected domain skills = top 30 required skills from JDs of that keyword
+
+  .NET                 precision=0.058  (domain skills available: 9)
+  DevOps               precision=0.127  (domain skills available: 21)
+  Java                 precision=0.083  (domain skills available: 14)
+  JavaScript           precision=0.193  (domain skills available: 30)
+  Python               precision=0.108  (domain skills available: 12)
+
+  overall avg precision: 0.114
+
+CROSS-DOMAIN SANITY CHECK
+----------------------------------------
+same-domain overlap vs cross-domain overlap (higher same = good)
+
+  Python               same=0.044  cross=0.028  delta=+0.016  [PASS]
+  JavaScript           same=0.047  cross=0.022  delta=+0.025  [PASS]
+  Java                 same=0.034  cross=0.021  delta=+0.013  [PASS]
+  DevOps               same=0.057  cross=0.025  delta=+0.032  [PASS]
+  .NET                 same=0.040  cross=0.022  delta=+0.018  [PASS]

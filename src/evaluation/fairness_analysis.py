@@ -145,15 +145,15 @@ def compute_fairness_statistics(df):
             print(f"  ANOVA: F={f_stat:.3f}, p={p_value:.4f}")
 
             if p_value < 0.05:
-                print(f"  ⚠️  Significant difference detected (p < 0.05)")
+                print(f"  WARNING: Significant difference detected (p < 0.05)")
             else:
-                print(f"  ✓ No significant bias (p >= 0.05)")
+                print(f"  OK: No significant bias (p >= 0.05)")
 
             # Mean by level
             for level in exp_levels:
                 scores = df[df['exp_level'] == level][method]
                 if len(scores) > 0:
-                    print(f"  {level}: μ={scores.mean():.3f}, σ={scores.std():.3f}, n={len(scores)}")
+                    print(f"  {level}: mu={scores.mean():.3f}, sigma={scores.std():.3f}, n={len(scores)}")
 
     # 2. Keyword category analysis
     print("\n[2] Score by Keyword Category:")
@@ -172,15 +172,15 @@ def compute_fairness_statistics(df):
             print(f"  ANOVA: F={f_stat:.3f}, p={p_value:.4f}")
 
             if p_value < 0.05:
-                print(f"  ⚠️  Significant difference detected (p < 0.05)")
+                print(f"  WARNING: Significant difference detected (p < 0.05)")
             else:
-                print(f"  ✓ No significant bias (p >= 0.05)")
+                print(f"  OK: No significant bias (p >= 0.05)")
 
             # Mean by category
             for cat in sorted(categories):
                 scores = df[df['category'] == cat][method]
                 if len(scores) > 0:
-                    print(f"  {cat}: μ={scores.mean():.3f}, σ={scores.std():.3f}, n={len(scores)}")
+                    print(f"  {cat}: mu={scores.mean():.3f}, sigma={scores.std():.3f}, n={len(scores)}")
 
 def create_fairness_summary_table(df, output_dir):
     """Create summary table with fairness metrics."""
@@ -252,12 +252,20 @@ def main():
 
     print("\nloading data...")
     scores_df = pd.read_csv(detailed_path)
-    # grab exp years and keyword from eval pairs - no need to load full resumes parquet
-    eval_pairs = pd.read_parquet(eval_pairs_path, columns=["resume_id", "jd_id", "keyword", "resume_exp_years", "difficulty"])
     print(f"  loaded {len(scores_df):,} scored pairs")
 
-    # merge to get exp years and keyword info
-    merged = scores_df.merge(eval_pairs, on=["resume_id", "jd_id"], how="left")
+    # merge only columns not already in scores_df
+    eval_pairs = pd.read_parquet(eval_pairs_path, columns=["resume_id", "jd_id", "keyword", "resume_exp_years", "difficulty"])
+    merge_cols = ["resume_id", "jd_id"]
+    extra_cols = [c for c in eval_pairs.columns if c not in scores_df.columns]
+    if extra_cols:
+        merged = scores_df.merge(eval_pairs[merge_cols + extra_cols], on=merge_cols, how="left")
+    else:
+        merged = scores_df.copy()
+
+    # ensure keyword column exists (may already be in detailed_scores)
+    if "keyword" not in merged.columns and "keyword" in eval_pairs.columns:
+        merged = scores_df.merge(eval_pairs[["resume_id", "jd_id", "keyword", "resume_exp_years"]], on=["resume_id", "jd_id"], how="left")
 
     merged['exp_level'] = merged['resume_exp_years'].apply(extract_experience_level)
     merged['category'] = merged['keyword'].apply(categorize_keyword)

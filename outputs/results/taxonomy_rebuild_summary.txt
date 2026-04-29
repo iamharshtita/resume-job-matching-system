@@ -1,0 +1,33 @@
+TAXONOMY REBUILD SUMMARY
+========================================
+old taxonomy: 0 skills
+new taxonomy: 17,429 skills
+removed: -17,429 (noise from non-technical roles)
+added: 17,429 (new from filtered dataset)
+min frequency: 3
+max frequency: 12637
+
+category breakdown:
+  technical: 17,429
+
+top 20 skills:
+  javascript                     total=12,637  resume= 4,671  jd= 7,966  [technical]
+  git                            total=11,247  resume= 4,562  jd= 6,685  [technical]
+  docker                         total=10,586  resume= 3,652  jd= 6,934  [technical]
+  typescript                     total= 8,341  resume= 3,446  jd= 4,895  [technical]
+  python                         total= 8,185  resume= 2,350  jd= 5,835  [technical]
+  html                           total= 7,925  resume= 4,046  jd= 3,879  [technical]
+  css                            total= 7,742  resume= 4,653  jd= 3,089  [technical]
+  react                          total= 7,594  resume= 3,364  jd= 4,230  [technical]
+  sql                            total= 7,451  resume= 2,329  jd= 5,122  [technical]
+  aws                            total= 6,868  resume= 1,477  jd= 5,391  [technical]
+  java                           total= 6,417  resume= 1,972  jd= 4,445  [technical]
+  mysql                          total= 6,065  resume= 3,327  jd= 2,738  [technical]
+  jira                           total= 5,794  resume= 3,290  jd= 2,504  [technical]
+  postgresql                     total= 5,564  resume= 3,093  jd= 2,471  [technical]
+  node.js                        total= 4,958  resume= 1,595  jd= 3,363  [technical]
+  kubernetes                     total= 4,586  resume=   972  jd= 3,614  [technical]
+  mongodb                        total= 4,514  resume= 2,371  jd= 2,143  [technical]
+  jenkins                        total= 4,299  resume= 1,933  jd= 2,366  [technical]
+  ci                             total= 4,080  resume=   241  jd= 3,839  [technical]
+  angular                        total= 4,045  resume= 1,112  jd= 2,933  [technical]

@@ -43,10 +43,15 @@ def main():
     jds     = pd.read_parquet(PROCESSED_DIR / "jds_parsed.parquet")
     print(f"resumes: {len(resumes):,} | jds: {len(jds):,}")
 
-    # load existing taxonomy to preserve category labels
-    old_tax = pd.read_csv(SKILLS_TAXONOMY_FILE)
-    old_categories = dict(zip(old_tax['skill'].str.lower(), old_tax['category']))
-    print(f"loaded {len(old_categories):,} existing category labels")
+    # load existing taxonomy to preserve category labels if it exists
+    if SKILLS_TAXONOMY_FILE.exists():
+        old_tax = pd.read_csv(SKILLS_TAXONOMY_FILE)
+        old_categories = dict(zip(old_tax['skill'].str.lower(), old_tax['category']))
+        print(f"loaded {len(old_categories):,} existing category labels")
+    else:
+        old_tax = pd.DataFrame(columns=["skill", "category"])
+        old_categories = {}
+        print("no existing taxonomy found, building from scratch")
 
     # count skill frequencies from resumes
     resume_counts: Counter = Counter()
@@ -105,12 +110,14 @@ def main():
     for cat, cnt in df['category'].value_counts().items():
         print(f"  {cat}: {cnt:,}")
 
-    # backup old taxonomy
-    backup = SKILLS_TAXONOMY_FILE.parent / "skills_master_backup.csv"
-    old_tax.to_csv(backup, index=False)
-    print(f"backup saved to {backup}")
+    # backup old taxonomy (if it existed)
+    if len(old_tax) > 0:
+        backup = SKILLS_TAXONOMY_FILE.parent / "skills_master_backup.csv"
+        old_tax.to_csv(backup, index=False)
+        print(f"backup saved to {backup}")
 
     # save new taxonomy
+    SKILLS_TAXONOMY_FILE.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(SKILLS_TAXONOMY_FILE, index=False)
     print(f"new taxonomy saved to {SKILLS_TAXONOMY_FILE}")
 
