@@ -135,7 +135,7 @@ Parses raw data, rebuilds taxonomy, computes IDF weights, and optionally fine-tu
 python3 scripts/run_preprocessing.py
 ```
 
-To skip fine-tuning (faster, ~10 mins instead of ~40 mins):
+To skip fine-tuning:
 
 ```bash
 python3 scripts/run_preprocessing.py --skip-finetune
@@ -175,14 +175,30 @@ Input files must be plain `.txt`. Filename does not matter.
 
 Compare TF-IDF baseline, Skill-IDF baseline, and Multi-Agent pipeline on a held-out test set:
 
+## Create evaluation dataset for testing
+
 ```bash
-python3 src/evaluation/evaluate_all.py --keyword Python --n-jobs 10 --n-relevant 8 --n-irrelevant 8 --k 5
-python3 src/evaluation/evaluate_all.py --keyword JavaScript --n-jobs 10 --n-relevant 8 --n-irrelevant 8 --k 5
-python3 src/evaluation/evaluate_all.py --keyword Java --n-jobs 10 --n-relevant 8 --n-irrelevant 8 --k 5
-python3 src/evaluation/evaluate_all.py --keyword DevOps --n-jobs 10 --n-relevant 8 --n-irrelevant 8 --k 5
+    python3 scripts/build_eval_dataset.py
+    python3 scripts/build_eval_dataset.py --force 
+```
+```bash
+#TF-IDF benchmark
+python3 scripts/run_tfidf_baseline.py --benchmark --eval-pairs
+
+#Full evaluation - all 3 methods
+python3 src/evaluation/evaluate_all.py
+
+#Fairness analysis
+python3 src/evaluation/fairness_analysis.py
+
+#Ablation study
+python3 src/evaluation/ablation_study.py
+
+#Visualizations
+python3 src/evaluation/visualize_results.py
 ```
 
-Results saved to `outputs/results/comparison_results.csv`.
+Results saved to `outputs/results/` folder.
 
 ---
 

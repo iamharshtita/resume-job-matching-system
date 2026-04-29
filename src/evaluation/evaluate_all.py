@@ -1,15 +1,17 @@
 """
-Unified evaluation script - compares all methods on the same test set.
+Unified evaluation - compares all three methods on the same fixed test set.
 
 Runs:
 1. TF-IDF Baseline
 2. Skill-IDF Baseline
 3. Multi-Agent Pipeline (with IDF-weighted matching)
 
-Outputs: comparison_results.csv with NDCG@5, Precision@5, Recall@5, MAP
+Reads from data/test/eval_pairs.parquet (build it first with scripts/build_eval_dataset.py)
+Outputs comparison_results.csv, detailed_scores.csv, avg_comparison_results.csv
 
 Usage:
-    python3 src/evaluation/evaluate_all.py --n-jobs 5 --n-candidates 20 --k 5
+    python3 src/evaluation/evaluate_all.py
+    python3 src/evaluation/evaluate_all.py --k 10
 """
 import sys
 import time
@@ -19,7 +21,6 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
 from sklearn.metrics import ndcg_score
 
 ROOT = Path(__file__).parent.parent.parent
@@ -27,7 +28,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from baselines.tfidf_baseline import TFIDFBaselineAgent
 from agents.orchestrator import SkillMiningOrchestrator
-from config import PROCESSED_DIR
+from config import PROCESSED_DIR, RESULTS_DIR
 
 def compute_metrics(scores, relevance, k):
     """Compute ranking metrics for a single JD."""
@@ -54,7 +55,7 @@ def evaluate_method(df, score_col, k):
     """Evaluate a method across all JDs in the dataframe."""
     ndcgs, precs, recs, maps = [], [], [], []
 
-    for jd_id, group in df.groupby("jd_id"):
+    for _, group in df.groupby("jd_id"):
         s = group[score_col].values.astype(float)
         r = group["relevance"].values.astype(float)
 
@@ -71,46 +72,6 @@ def evaluate_method(df, score_col, k):
         "map": round(np.nanmean(maps), 4),
     }
 
-def build_test_set(resumes_df, jds_df, keyword, n_jobs, n_relevant, n_irrelevant):
-    """Build test set: relevant (same keyword) vs irrelevant (different keyword)."""
-
-    # Pick JDs with this keyword and at least 3 required skills
-    target_jds = jds_df[jds_df["primary_keyword"] == keyword]
-    target_jds = target_jds[target_jds["required_skills"].apply(len) >= 3].iloc[:n_jobs]
-
-    if len(target_jds) == 0:
-        raise ValueError(f"No JDs found for keyword '{keyword}'")
-
-    # Pick resumes: relevant (same keyword) and irrelevant (different keyword)
-    rel_resumes = resumes_df[resumes_df["primary_keyword"] == keyword].iloc[:n_relevant]
-
-    # Get irrelevant from other keywords
-    other_keywords = resumes_df[resumes_df["primary_keyword"] != keyword]["primary_keyword"].unique()
-    if len(other_keywords) == 0:
-        raise ValueError(f"No other keywords found for irrelevant resumes")
-
-    other_keyword = other_keywords[0]
-    irrel_resumes = resumes_df[resumes_df["primary_keyword"] == other_keyword].iloc[:n_irrelevant]
-
-    # Combine
-    all_resumes = pd.concat([rel_resumes, irrel_resumes]).reset_index(drop=True)
-
-    # Build pairs
-    pairs = []
-    for _, jd in target_jds.iterrows():
-        for _, resume in all_resumes.iterrows():
-            pairs.append({
-                "jd_id": str(jd["id"]),
-                "jd_title": jd["title"],
-                "jd_text": jd["raw_text"],
-                "jd_keyword": jd["primary_keyword"],
-                "resume_id": str(resume["id"]),
-                "resume_text": resume["raw_text"],
-                "resume_keyword": resume["primary_keyword"],
-                "relevance": 1 if resume["primary_keyword"] == keyword else 0,
-            })
-
-    return pairs
 
 def run_tfidf_baseline(pairs):
     """Run TF-IDF baseline on all pairs."""
@@ -217,132 +178,147 @@ def run_multi_agent_pipeline(pairs):
 
     return scores
 
+EVAL_PAIRS_PATH = ROOT / "data" / "test" / "eval_pairs.parquet"
+
+
+def _load_eval_pairs():
+    if not EVAL_PAIRS_PATH.exists():
+        print(f"eval_pairs.parquet not found at {EVAL_PAIRS_PATH}")
+        print("run scripts/build_eval_dataset.py first")
+        sys.exit(1)
+    df = pd.read_parquet(EVAL_PAIRS_PATH)
+    print(f"loaded {len(df):,} pairs from eval_pairs.parquet")
+    return df.to_dict("records")
+
+
+def _run_all_methods(pairs, k):
+    timings = {}
+
+    t0 = time.time()
+    tfidf_scores = run_tfidf_baseline(pairs)
+    timings["tfidf"] = time.time() - t0
+    print(f"  tfidf done in {timings['tfidf']:.1f}s")
+
+    t0 = time.time()
+    skill_idf_scores = run_skill_idf_baseline(pairs)
+    timings["skill_idf"] = time.time() - t0
+    print(f"  skill-idf done in {timings['skill_idf']:.1f}s")
+
+    t0 = time.time()
+    multi_agent_scores = run_multi_agent_pipeline(pairs)
+    timings["multi_agent"] = time.time() - t0
+    print(f"  multi-agent done in {timings['multi_agent']:.1f}s")
+
+    rows = []
+    for p in pairs:
+        key = (p["resume_id"], p["jd_id"])
+        rows.append({
+            "keyword":           p["keyword"],
+            "difficulty":        p["difficulty"],
+            "resume_id":         p["resume_id"],
+            "jd_id":             p["jd_id"],
+            "relevance":         p["relevance"],
+            "tfidf_score":       tfidf_scores.get(key, 0.0),
+            "skill_idf_score":   skill_idf_scores.get(key, 0.0),
+            "multi_agent_score": multi_agent_scores.get(key, 0.0),
+        })
+
+    df = pd.DataFrame(rows)
+    return df, timings
+
+
+def _print_keyword_table(keyword, metrics, timings, k):
+    print(f"\n  {keyword}")
+    print(f"  {'Method':<20} {'NDCG@'+str(k):>10} {'P@'+str(k):>10} {'R@'+str(k):>10} {'MAP':>10} {'Time(s)':>10}")
+    print(f"  {'-'*65}")
+    for label, key in [("TF-IDF", "tfidf"), ("Skill-IDF", "skill_idf"), ("Multi-Agent+IDF", "multi_agent")]:
+        m = metrics[key]
+        print(f"  {label:<20} {m[f'ndcg@{k}']:>10.4f} {m[f'prec@{k}']:>10.4f} "
+              f"{m[f'rec@{k}']:>10.4f} {m['map']:>10.4f} {timings[key]:>10.2f}")
+
+
+def _print_summary_table(per_keyword_metrics, k):
+    methods = [("TF-IDF", "tfidf"), ("Skill-IDF", "skill_idf"), ("Multi-Agent+IDF", "multi_agent")]
+    metric_keys = [f"ndcg@{k}", f"prec@{k}", f"rec@{k}", "map"]
+
+    print(f"\n{'Method':<20} {'NDCG@'+str(k):>10} {'P@'+str(k):>10} {'R@'+str(k):>10} {'MAP':>10}")
+    print("-" * 55)
+    for label, key in methods:
+        vals = [per_keyword_metrics[kw][key] for kw in per_keyword_metrics]
+        avgs = {mk: round(float(np.mean([v[mk] for v in vals])), 4) for mk in metric_keys}
+        print(f"{label:<20} {avgs[f'ndcg@{k}']:>10.4f} {avgs[f'prec@{k}']:>10.4f} "
+              f"{avgs[f'rec@{k}']:>10.4f} {avgs['map']:>10.4f}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Unified evaluation of all methods")
-    parser.add_argument("--keyword", type=str, default="Python", help="Target keyword")
-    parser.add_argument("--n-jobs", type=int, default=5, help="Number of JDs")
-    parser.add_argument("--n-relevant", type=int, default=10, help="Relevant resumes per JD")
-    parser.add_argument("--n-irrelevant", type=int, default=10, help="Irrelevant resumes per JD")
-    parser.add_argument("--k", type=int, default=5, help="Top-k for metrics")
+    parser.add_argument("--k", type=int, default=5, help="top-k for metrics (default 5)")
     args = parser.parse_args()
 
     print("=" * 70)
     print("UNIFIED EVALUATION - ALL METHODS")
     print("=" * 70)
 
-    # Load data
-    print(f"\nLoading datasets...")
-    resumes_df = pd.read_parquet(PROCESSED_DIR / "resumes_parsed.parquet")
-    jds_df     = pd.read_parquet(PROCESSED_DIR / "jds_parsed.parquet")
-    print(f"resumes: {len(resumes_df):,} | jds: {len(jds_df):,}")
+    pairs = _load_eval_pairs()
+    keywords = sorted(set(p["keyword"] for p in pairs))
+    print(f"keywords: {', '.join(keywords)}")
 
-    # use held-out test split if it exists (created by finetune_embeddings.py)
-    import json
-    split_path = ROOT / "data" / "test" / "test_split.json"
-    if split_path.exists():
-        split = json.load(open(split_path))
-        test_j_ids = set(split["jd_test_ids"].get(args.keyword, []))
-        # keep resumes from ALL keywords in the test split so irrelevant candidates exist
-        all_test_r_ids = set(rid for ids in split["resume_test_ids"].values() for rid in ids)
-        if all_test_r_ids and test_j_ids:
-            resumes_df = resumes_df[resumes_df['id'].astype(str).isin(all_test_r_ids)]
-            jds_df     = jds_df[jds_df['id'].astype(str).isin(test_j_ids)]
-            print(f"using held-out test split: {len(resumes_df):,} resumes, {len(jds_df):,} jds")
-        else:
-            print("no test split found for this keyword, using full dataset")
-    else:
-        print("no test_split.json found - run finetune_embeddings.py first for proper train/test split")
-
-    # Build test set
-    print(f"\nbuilding test set (keyword: {args.keyword})...")
-    pairs = build_test_set(
-        resumes_df, jds_df, args.keyword,
-        args.n_jobs, args.n_relevant, args.n_irrelevant
-    )
-    print(f"  Test pairs: {len(pairs):,}")
-    print(f"  Relevant pairs: {sum(p['relevance'] for p in pairs):,}")
-    print(f"  Irrelevant pairs: {sum(1-p['relevance'] for p in pairs):,}")
-
-    # Run methods
-    print(f"\n" + "=" * 70)
+    print("\n" + "=" * 70)
     print("RUNNING EVALUATIONS")
     print("=" * 70)
 
-    results = {}
+    df, timings = _run_all_methods(pairs, args.k)
 
-    # 1. TF-IDF
-    t0 = time.time()
-    tfidf_scores = run_tfidf_baseline(pairs)
-    results["tfidf_time"] = time.time() - t0
-    print(f"  TF-IDF completed in {results['tfidf_time']:.2f}s")
+    # per keyword metrics
+    per_keyword_metrics = {}
+    summary_rows = []
 
-    # 2. Skill-IDF
-    t0 = time.time()
-    skill_idf_scores = run_skill_idf_baseline(pairs)
-    results["skill_idf_time"] = time.time() - t0
-    print(f"  Skill-IDF completed in {results['skill_idf_time']:.2f}s")
+    for kw in keywords:
+        kw_df = df[df["keyword"] == kw]
+        metrics = {
+            "tfidf":       evaluate_method(kw_df, "tfidf_score", args.k),
+            "skill_idf":   evaluate_method(kw_df, "skill_idf_score", args.k),
+            "multi_agent": evaluate_method(kw_df, "multi_agent_score", args.k),
+        }
+        per_keyword_metrics[kw] = metrics
+        _print_keyword_table(kw, metrics, timings, args.k)
 
-    # 3. Multi-Agent
-    t0 = time.time()
-    multi_agent_scores = run_multi_agent_pipeline(pairs)
-    results["multi_agent_time"] = time.time() - t0
-    print(f"  Multi-Agent completed in {results['multi_agent_time']:.2f}s")
+        for label, key in [("TF-IDF", "tfidf"), ("Skill-IDF", "skill_idf"), ("Multi-Agent+IDF", "multi_agent")]:
+            summary_rows.append({
+                "keyword": kw,
+                "method": label,
+                **metrics[key],
+                "time": timings[key],
+            })
 
-    # Build results dataframe
-    print(f"\nBuilding results dataframe...")
-    rows = []
-    for p in pairs:
-        key = (p["resume_id"], p["jd_id"])
-        rows.append({
-            "resume_id": p["resume_id"],
-            "jd_id": p["jd_id"],
-            "relevance": p["relevance"],
-            "tfidf_score": tfidf_scores.get(key, 0.0),
-            "skill_idf_score": skill_idf_scores.get(key, 0.0),
-            "multi_agent_score": multi_agent_scores.get(key, 0.0),
-        })
-
-    df = pd.DataFrame(rows)
-
-    # Evaluate each method
-    print(f"\n" + "=" * 70)
-    print("EVALUATION METRICS")
+    print("\n" + "=" * 70)
+    print(f"AVERAGE ACROSS {len(per_keyword_metrics)} KEYWORDS")
     print("=" * 70)
+    _print_summary_table(per_keyword_metrics, args.k)
 
-    tfidf_metrics = evaluate_method(df, "tfidf_score", args.k)
-    skill_idf_metrics = evaluate_method(df, "skill_idf_score", args.k)
-    multi_agent_metrics = evaluate_method(df, "multi_agent_score", args.k)
+    # save outputs
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Print comparison table
-    print(f"\n{'Method':<20} {'NDCG@'+str(args.k):>10} {'P@'+str(args.k):>10} {'R@'+str(args.k):>10} {'MAP':>10} {'Time(s)':>10}")
-    print("-" * 70)
+    summary_df = pd.DataFrame(summary_rows)
+    summary_df.to_csv(RESULTS_DIR / "comparison_results.csv", index=False)
+    print(f"\nper-keyword results saved to: {RESULTS_DIR / 'comparison_results.csv'}")
 
-    print(f"{'TF-IDF':<20} {tfidf_metrics[f'ndcg@{args.k}']:>10.4f} {tfidf_metrics[f'prec@{args.k}']:>10.4f} "
-          f"{tfidf_metrics[f'rec@{args.k}']:>10.4f} {tfidf_metrics['map']:>10.4f} {results['tfidf_time']:>10.2f}")
+    df.to_csv(RESULTS_DIR / "detailed_scores.csv", index=False)
+    print(f"detailed scores saved to: {RESULTS_DIR / 'detailed_scores.csv'}")
 
-    print(f"{'Skill-IDF':<20} {skill_idf_metrics[f'ndcg@{args.k}']:>10.4f} {skill_idf_metrics[f'prec@{args.k}']:>10.4f} "
-          f"{skill_idf_metrics[f'rec@{args.k}']:>10.4f} {skill_idf_metrics['map']:>10.4f} {results['skill_idf_time']:>10.2f}")
+    # macro average
+    metric_keys = [f"ndcg@{args.k}", f"prec@{args.k}", f"rec@{args.k}", "map"]
+    avg_rows = []
+    for label, key in [("TF-IDF", "tfidf"), ("Skill-IDF", "skill_idf"), ("Multi-Agent+IDF", "multi_agent")]:
+        vals = [per_keyword_metrics[kw][key] for kw in per_keyword_metrics]
+        avg_rows.append({
+            "method": label,
+            "n_keywords": len(per_keyword_metrics),
+            **{mk: round(float(np.mean([v[mk] for v in vals])), 4) for mk in metric_keys},
+        })
+    pd.DataFrame(avg_rows).to_csv(RESULTS_DIR / "avg_comparison_results.csv", index=False)
+    print(f"macro-average saved to: {RESULTS_DIR / 'avg_comparison_results.csv'}")
 
-    print(f"{'Multi-Agent+IDF':<20} {multi_agent_metrics[f'ndcg@{args.k}']:>10.4f} {multi_agent_metrics[f'prec@{args.k}']:>10.4f} "
-          f"{multi_agent_metrics[f'rec@{args.k}']:>10.4f} {multi_agent_metrics['map']:>10.4f} {results['multi_agent_time']:>10.2f}")
-
-    # Save results
-    output_path = PROCESSED_DIR.parent / "outputs" / "results" / "comparison_results.csv"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    summary_df = pd.DataFrame([
-        {"method": "TF-IDF", **tfidf_metrics, "time": results["tfidf_time"]},
-        {"method": "Skill-IDF", **skill_idf_metrics, "time": results["skill_idf_time"]},
-        {"method": "Multi-Agent+IDF", **multi_agent_metrics, "time": results["multi_agent_time"]},
-    ])
-
-    summary_df.to_csv(output_path, index=False)
-    print(f"\nResults saved to: {output_path}")
-
-    # Save detailed scores
-    detailed_path = output_path.parent / "detailed_scores.csv"
-    df.to_csv(detailed_path, index=False)
-    print(f"Detailed scores saved to: {detailed_path}")
 
 if __name__ == "__main__":
     main()

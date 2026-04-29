@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from config import PROCESSED_DIR, EMBEDDING_MODEL
+from config import PROCESSED_DIR
 
 MODEL_SAVE_PATH = ROOT / "data" / "models" / "skill_embedding_model"
 
@@ -100,58 +100,87 @@ def split_and_save(resumes, jds, test_ratio=0.2, seed=42):
     return r_train, j_train
 
 
+def skill_overlap_label(resume_skills, jd_skills) -> float:
+    # graded label based on actual skill overlap between resume and JD
+    # uses raw_skills from resume and required_skills from JD
+    r = {str(s).lower().strip() for s in resume_skills if s}
+    j = {str(s).lower().strip() for s in jd_skills if s}
+    if not j:
+        return 0.7  # no JD skills info, assume moderate match for same keyword
+    overlap = len(r & j) / len(j)
+    # scale: 0.3 base (same domain) + up to 0.7 for perfect skill match
+    return round(min(1.0, 0.3 + 0.7 * overlap), 3)
+
+
 def build_training_pairs(resumes, jds, samples_per_keyword, seed=42):
     random.seed(seed)
-    positives = []
-    negatives = []
+    pairs = []
 
     keywords = resumes['primary_keyword'].unique().tolist()
 
-    # alias pairs - strongest signal, skill strings that mean the same thing
+    # alias pairs - skill strings that mean the same thing → label 1.0
     for alias, canonical in ALIASES.items():
-        positives.append(InputExample(texts=[alias, canonical], label=1.0))
-        # add some variations
-        positives.append(InputExample(texts=[alias.upper(), canonical], label=1.0))
+        pairs.append(InputExample(texts=[alias, canonical], label=1.0))
+        pairs.append(InputExample(texts=[alias.upper(), canonical], label=1.0))
 
-    # resume + JD from same keyword = positive
-    # resume + JD from different keyword = negative
     for kw in keywords:
-        r_texts = resumes[resumes['primary_keyword'] == kw]['raw_text'].dropna().tolist()
-        j_texts = jds[jds['primary_keyword'] == kw]['raw_text'].dropna().tolist()
+        kw_resumes = resumes[resumes['primary_keyword'] == kw].dropna(subset=['raw_text'])
+        kw_jds     = jds[jds['primary_keyword'] == kw].dropna(subset=['raw_text'])
 
-        if not r_texts or not j_texts:
+        if kw_resumes.empty or kw_jds.empty:
             continue
 
-        # sample pairs
-        n = min(samples_per_keyword, len(r_texts), len(j_texts))
-        r_sample = random.sample(r_texts, n)
-        j_sample = random.sample(j_texts, n)
+        n = min(samples_per_keyword, len(kw_resumes), len(kw_jds))
+        r_sample = kw_resumes.sample(n, random_state=seed)
+        j_sample = kw_jds.sample(n, random_state=seed)
 
-        for r, j in zip(r_sample, j_sample):
-            # truncate to first 256 chars - skill section is usually at the top
-            positives.append(InputExample(texts=[r[:256], j[:256]], label=1.0))
+        # same-keyword pairs with graded labels based on skill overlap
+        for (_, r_row), (_, j_row) in zip(r_sample.iterrows(), j_sample.iterrows()):
+            r_skills = r_row.get('raw_skills', [])
+            j_skills = j_row.get('required_skills', [])
+            r_skills = r_skills.tolist() if hasattr(r_skills, 'tolist') else list(r_skills or [])
+            j_skills = j_skills.tolist() if hasattr(j_skills, 'tolist') else list(j_skills or [])
+            label = skill_overlap_label(r_skills, j_skills)
+            pairs.append(InputExample(
+                texts=[str(r_row['raw_text'])[:256], str(j_row['raw_text'])[:256]],
+                label=label
+            ))
 
-        # negatives - pair this keyword's resumes with a different keyword's JDs
+        # cross-keyword negatives → label 0.0
         other_kws = [k for k in keywords if k != kw]
         if not other_kws:
             continue
-        neg_kw = random.choice(other_kws)
-        neg_jds = jds[jds['primary_keyword'] == neg_kw]['raw_text'].dropna().tolist()
-        if not neg_jds:
+        neg_kw  = random.choice(other_kws)
+        neg_jds = jds[jds['primary_keyword'] == neg_kw].dropna(subset=['raw_text'])
+        if neg_jds.empty:
             continue
 
-        n_neg = min(n // 2, len(neg_jds))
-        neg_sample = random.sample(neg_jds, n_neg)
-        r_neg = random.sample(r_texts, n_neg)
-        for r, j in zip(r_neg, neg_sample):
-            negatives.append(InputExample(texts=[r[:256], j[:256]], label=0.0))
+        n_neg     = min(n // 2, len(neg_jds), len(kw_resumes))
+        r_neg     = kw_resumes.sample(n_neg, random_state=seed)
+        j_neg     = neg_jds.sample(n_neg, random_state=seed)
+        for (_, r_row), (_, j_row) in zip(r_neg.iterrows(), j_neg.iterrows()):
+            pairs.append(InputExample(
+                texts=[str(r_row['raw_text'])[:256], str(j_row['raw_text'])[:256]],
+                label=0.0
+            ))
 
-    print(f"training pairs: {len(positives):,} positives, {len(negatives):,} negatives")
-    return positives + negatives
+    pos = sum(1 for p in pairs if p.label > 0.5)
+    neg = sum(1 for p in pairs if p.label <= 0.5)
+    print(f"training pairs: {len(pairs):,} total ({pos:,} positive/graded, {neg:,} negative)")
+    return pairs
 
 
 def evaluate_model(model, resumes, jds):
-    """quick evaluation - cosine similarity between same-keyword vs different-keyword pairs"""
+    """Evaluate on held-out test split only to avoid leaking training data."""
+    import json
+    split_path = ROOT / "data" / "test" / "test_split.json"
+    if split_path.exists():
+        split = json.load(open(split_path))
+        test_r_ids = set(rid for ids in split["resume_test_ids"].values() for rid in ids)
+        test_j_ids = set(jid for ids in split["jd_test_ids"].values()     for jid in ids)
+        resumes = resumes[resumes['id'].astype(str).isin(test_r_ids)]
+        jds     = jds[jds['id'].astype(str).isin(test_j_ids)]
+
     random.seed(99)
     sentences1, sentences2, scores = [], [], []
 
@@ -176,7 +205,10 @@ def evaluate_model(model, resumes, jds):
                 scores.append(0.0)
 
     evaluator = evaluation.EmbeddingSimilarityEvaluator(sentences1, sentences2, scores)
-    return evaluator(model)
+    result = evaluator(model)
+    if isinstance(result, dict):
+        return list(result.values())[0]
+    return float(result)
 
 
 def main():
@@ -211,8 +243,9 @@ def main():
     print(f"\nbuilding training pairs (samples per keyword: {args.samples})...")
     train_pairs = build_training_pairs(resumes_train, jds_train, samples_per_keyword=args.samples)
 
-    print(f"\nloading base model: {EMBEDDING_MODEL}")
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    BASE_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+    print(f"\nloading base model: {BASE_MODEL_NAME}")
+    model = SentenceTransformer(BASE_MODEL_NAME)
 
     print("evaluating base model before fine-tuning...")
     base_score = evaluate_model(model, resumes, jds)
@@ -247,7 +280,9 @@ def main():
     lines = [
         "EMBEDDING MODEL FINE-TUNING SUMMARY",
         "=" * 40,
-        f"base model: {EMBEDDING_MODEL}",
+        f"base model: {BASE_MODEL_NAME}",
+        f"fine-tuned model: {MODEL_SAVE_PATH}",
+        f"evaluated on: held-out test split only",
         f"epochs: {args.epochs}",
         f"batch size: {args.batch_size}",
         f"training pairs: {len(train_pairs):,}",
