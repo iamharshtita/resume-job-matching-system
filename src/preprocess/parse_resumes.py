@@ -2,6 +2,10 @@
 Runs ResumeParserAgent over a resumes dataset and saves output to
 data/processed/resumes_parsed.parquet
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import pandas as pd
 from tqdm import tqdm
 from agents.resume_parser import ResumeParserAgent
@@ -28,6 +32,15 @@ def main():
     print(f"Original dataset: {len(df):,} resumes")
     df_filtered = df[df[PRIMARY_KEYWORD_COL].isin(target_keywords)].copy()
     print(f"After keyword filter: {len(df_filtered):,} resumes")
+
+    # quality filters
+    before = len(df_filtered)
+    df_filtered = df_filtered[df_filtered['CV'].fillna('').str.len() >= 500]
+    print(f"After min CV length (500 chars): {len(df_filtered):,} (removed {before - len(df_filtered):,})")
+
+    before = len(df_filtered)
+    df_filtered = df_filtered[df_filtered['Experience Years'].notna()]
+    print(f"After experience years not null: {len(df_filtered):,} (removed {before - len(df_filtered):,})")
 
     # Sample 50% of QA records
     qa_mask = df_filtered[PRIMARY_KEYWORD_COL] == 'QA'

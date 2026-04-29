@@ -2,6 +2,10 @@
 Runs JDParserAgent over job descriptions and saves output to
 data/processed/jds_parsed.parquet
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import pandas as pd
 from tqdm import tqdm
 from agents.jd_parser import JDParserAgent
@@ -26,8 +30,15 @@ def main():
 
     # Filter to only target keywords
     print(f"Original dataset: {len(df):,} JDs")
-    sample = df[df[PRIMARY_KEYWORD_COL].isin(target_keywords)].copy().reset_index(drop=True)
+    sample = df[df[PRIMARY_KEYWORD_COL].isin(target_keywords)].copy()
     print(f"After keyword filter: {len(sample):,} JDs")
+
+    # quality filters
+    before = len(sample)
+    sample = sample[sample['Long Description'].fillna('').str.len() >= 300]
+    print(f"After min description length (300 chars): {len(sample):,} (removed {before - len(sample):,})")
+
+    sample = sample.reset_index(drop=True)
     print("  Breakdown by keyword:")
     for keyword in sorted(sample[PRIMARY_KEYWORD_COL].value_counts().index):
         count = (sample[PRIMARY_KEYWORD_COL] == keyword).sum()

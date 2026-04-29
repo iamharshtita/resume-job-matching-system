@@ -1,5 +1,5 @@
 """
-Ablation study: measure contribution of each component.
+Ablation study - measures how much each component contributes to the final score.
 
 Tests:
 1. Full system (all features)
@@ -8,8 +8,12 @@ Tests:
 4. Without title score (skill + experience only)
 5. Skill score only
 
+Reads from data/test/eval_pairs.parquet. Use --n-jds to control how many JDs
+to run (ablation runs pipeline 5x so keep this small, default is 10).
+
 Usage:
-    PYTHONPATH=src python3 scripts/ablation_study.py --n-jobs 5 --k 5
+    python3 src/evaluation/ablation_study.py
+    python3 src/evaluation/ablation_study.py --n-jds 20 --k 5
 """
 import sys
 import time
@@ -20,15 +24,15 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.metrics import ndcg_score
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from agents.orchestrator import SkillMiningOrchestrator
-from agents.matcher import MatchingAgent
-from config import PROCESSED_DIR, OUTPUT_DIR, WEIGHTS
+from config import OUTPUT_DIR, WEIGHTS
+
+EVAL_PAIRS_PATH = ROOT / "data" / "test" / "eval_pairs.parquet"
 
 def compute_ndcg(scores, relevance, k):
     """Compute NDCG@k for a single JD."""
@@ -47,33 +51,6 @@ def evaluate_variant(df, score_col, k):
         ndcgs.append(ndcg)
     return np.nanmean(ndcgs)
 
-def build_test_set(resumes_df, jds_df, keyword, n_jobs, n_relevant, n_irrelevant):
-    """Build test set (same as evaluate_all.py)."""
-    target_jds = jds_df[jds_df["primary_keyword"] == keyword]
-    target_jds = target_jds[target_jds["required_skills"].apply(len) >= 3].iloc[:n_jobs]
-
-    if len(target_jds) == 0:
-        raise ValueError(f"No JDs found for keyword '{keyword}'")
-
-    rel_resumes = resumes_df[resumes_df["primary_keyword"] == keyword].iloc[:n_relevant]
-    other_keywords = resumes_df[resumes_df["primary_keyword"] != keyword]["primary_keyword"].unique()
-    other_keyword = other_keywords[0]
-    irrel_resumes = resumes_df[resumes_df["primary_keyword"] == other_keyword].iloc[:n_irrelevant]
-
-    all_resumes = pd.concat([rel_resumes, irrel_resumes]).reset_index(drop=True)
-
-    pairs = []
-    for _, jd in target_jds.iterrows():
-        for _, resume in all_resumes.iterrows():
-            pairs.append({
-                "jd_id": str(jd["id"]),
-                "jd_text": jd["raw_text"],
-                "resume_id": str(resume["id"]),
-                "resume_text": resume["raw_text"],
-                "relevance": 1 if resume["primary_keyword"] == keyword else 0,
-            })
-
-    return pairs
 
 def run_full_system(pairs):
     """Variant 1: Full system with all features."""
@@ -104,14 +81,11 @@ def run_without_idf(pairs):
     """Variant 2: Without IDF weighting (equal skill weights)."""
     print("  [2/5] Without IDF weighting...")
 
-    # Temporarily disable IDF by setting all weights to 1.0
-    from agents.matcher import MatchingAgent
+    # swap IDF weights to uniform 1.0 temporarily then restore after
     import json
     from config import PROCESSED_DIR
 
-    # Backup original IDF weights
     idf_path = PROCESSED_DIR / "skill_idf.json"
-    backup_path = PROCESSED_DIR / "skill_idf_backup.json"
 
     if idf_path.exists():
         with open(idf_path, 'r') as f:
@@ -258,7 +232,7 @@ def run_skill_only(pairs):
 
 def plot_ablation_results(results, output_dir):
     """Bar chart comparing all variants."""
-    fig, ax = plt.subplots(figsize=(12, 6))
+    _, ax = plt.subplots(figsize=(12, 6))
 
     variants = list(results.keys())
     ndcg_values = list(results.values())
@@ -288,118 +262,98 @@ def plot_ablation_results(results, output_dir):
     plt.close()
 
 def main():
-    parser = argparse.ArgumentParser(description="Ablation study")
-    parser.add_argument("--keyword", type=str, default="Python", help="Target keyword")
-    parser.add_argument("--n-jobs", type=int, default=5, help="Number of JDs")
-    parser.add_argument("--n-relevant", type=int, default=10, help="Relevant resumes")
-    parser.add_argument("--n-irrelevant", type=int, default=10, help="Irrelevant resumes")
-    parser.add_argument("--k", type=int, default=5, help="Top-k for NDCG")
+    parser = argparse.ArgumentParser(description="ablation study")
+    parser.add_argument("--n-jds", type=int, default=10,
+                        help="number of JDs to sample from eval_pairs (ablation runs pipeline 5x so keep small)")
+    parser.add_argument("--k", type=int, default=5, help="top-k for NDCG")
     args = parser.parse_args()
 
     print("=" * 70)
     print("ABLATION STUDY - COMPONENT CONTRIBUTION")
     print("=" * 70)
 
-    # Load data
-    print(f"\nLoading datasets...")
-    resumes_df = pd.read_parquet(PROCESSED_DIR / "resumes_parsed.parquet")
-    jds_df = pd.read_parquet(PROCESSED_DIR / "jds_parsed.parquet")
+    if not EVAL_PAIRS_PATH.exists():
+        print(f"eval_pairs.parquet not found, run scripts/build_eval_dataset.py first")
+        sys.exit(1)
 
-    # Build test set
-    print(f"\nBuilding test set (keyword: {args.keyword})...")
-    pairs = build_test_set(
-        resumes_df, jds_df, args.keyword,
-        args.n_jobs, args.n_relevant, args.n_irrelevant
-    )
-    print(f"  Test pairs: {len(pairs):,}")
+    # load eval pairs and sample n-jds JDs to keep runtime managable
+    all_pairs_df = pd.read_parquet(EVAL_PAIRS_PATH)
+    jd_ids = all_pairs_df["jd_id"].drop_duplicates().sample(
+        min(args.n_jds, all_pairs_df["jd_id"].nunique()), random_state=42
+    ).tolist()
+    sampled_df = all_pairs_df[all_pairs_df["jd_id"].isin(jd_ids)]
+    pairs = sampled_df.to_dict("records")
+    print(f"running on {len(jd_ids)} JDs, {len(pairs)} pairs")
 
-    # Run variants
-    print(f"\n" + "=" * 70)
+    print("\n" + "=" * 70)
     print("RUNNING ABLATION VARIANTS")
     print("=" * 70)
 
-    variants = {}
-
-    # 1. Full system
     t0 = time.time()
     full_scores = run_full_system(pairs)
-    print(f"    Completed in {time.time() - t0:.2f}s")
+    print(f"    done in {time.time() - t0:.2f}s")
 
-    # 2. Without IDF
     t0 = time.time()
     no_idf_scores = run_without_idf(pairs)
-    print(f"    Completed in {time.time() - t0:.2f}s")
+    print(f"    done in {time.time() - t0:.2f}s")
 
-    # 3. Without experience
     t0 = time.time()
     no_exp_scores = run_without_experience(pairs)
-    print(f"    Completed in {time.time() - t0:.2f}s")
+    print(f"    done in {time.time() - t0:.2f}s")
 
-    # 4. Without title
     t0 = time.time()
     no_title_scores = run_without_title(pairs)
-    print(f"    Completed in {time.time() - t0:.2f}s")
+    print(f"    done in {time.time() - t0:.2f}s")
 
-    # 5. Skill only
     t0 = time.time()
     skill_only_scores = run_skill_only(pairs)
-    print(f"    Completed in {time.time() - t0:.2f}s")
+    print(f"    done in {time.time() - t0:.2f}s")
 
-    # Build dataframe
     rows = []
     for p in pairs:
         key = (p["resume_id"], p["jd_id"])
         rows.append({
-            "resume_id": p["resume_id"],
-            "jd_id": p["jd_id"],
-            "relevance": p["relevance"],
-            "full": full_scores.get(key, 0.0),
-            "no_idf": no_idf_scores.get(key, 0.0),
-            "no_exp": no_exp_scores.get(key, 0.0),
-            "no_title": no_title_scores.get(key, 0.0),
+            "resume_id":  p["resume_id"],
+            "jd_id":      p["jd_id"],
+            "relevance":  p["relevance"],
+            "full":       full_scores.get(key, 0.0),
+            "no_idf":     no_idf_scores.get(key, 0.0),
+            "no_exp":     no_exp_scores.get(key, 0.0),
+            "no_title":   no_title_scores.get(key, 0.0),
             "skill_only": skill_only_scores.get(key, 0.0),
         })
 
     df = pd.DataFrame(rows)
 
-    # Evaluate
-    print(f"\n" + "=" * 70)
+    print("\n" + "=" * 70)
     print("ABLATION RESULTS")
     print("=" * 70)
 
     results = {
-        "Full System": evaluate_variant(df, "full", args.k),
-        "Without IDF": evaluate_variant(df, "no_idf", args.k),
+        "Full System":        evaluate_variant(df, "full", args.k),
+        "Without IDF":        evaluate_variant(df, "no_idf", args.k),
         "Without Experience": evaluate_variant(df, "no_exp", args.k),
-        "Without Title": evaluate_variant(df, "no_title", args.k),
-        "Skill Only": evaluate_variant(df, "skill_only", args.k),
+        "Without Title":      evaluate_variant(df, "no_title", args.k),
+        "Skill Only":         evaluate_variant(df, "skill_only", args.k),
     }
 
-    print(f"\n{'Variant':<25} {'NDCG@'+str(args.k):>10} {'Δ vs Full':>12}")
-    print("-" * 50)
-
     full_ndcg = results["Full System"]
+    print("\n{:<25} {:>10} {:>12}".format("Variant", f"NDCG@{args.k}", "vs Full"))
+    print("-" * 50)
     for variant, ndcg in results.items():
-        delta = ndcg - full_ndcg
-        print(f"{variant:<25} {ndcg:>10.4f} {delta:>+12.4f}")
+        print("{:<25} {:>10.4f} {:>+12.4f}".format(variant, ndcg, ndcg - full_ndcg))
 
-    # Visualization
-    print(f"\nGenerating visualization...")
     viz_dir = OUTPUT_DIR / "visualizations"
     viz_dir.mkdir(parents=True, exist_ok=True)
-
     plot_ablation_results(results, viz_dir)
 
-    # Save results
     output_path = OUTPUT_DIR / "results" / "ablation_results.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    results_df = pd.DataFrame([
+    pd.DataFrame([
         {"variant": k, "ndcg@5": v, "delta": v - full_ndcg}
         for k, v in results.items()
-    ])
-    results_df.to_csv(output_path, index=False)
-    print(f"\nResults saved to: {output_path}")
+    ]).to_csv(output_path, index=False)
+    print(f"\nresults saved to: {output_path}")
 
     print("\n" + "=" * 70)
     print("ABLATION STUDY COMPLETE")

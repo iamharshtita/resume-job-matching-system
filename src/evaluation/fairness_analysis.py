@@ -7,7 +7,7 @@ Analyzes:
 3. Statistical tests for systematic bias
 
 Usage:
-    PYTHONPATH=src python3 scripts/fairness_analysis.py
+    python3 src/evaluation/fairness_analysis.py
 """
 import sys
 from pathlib import Path
@@ -18,10 +18,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from config import PROCESSED_DIR, OUTPUT_DIR
+from config import OUTPUT_DIR
 
 # Keyword categories
 KEYWORD_CATEGORIES = {
@@ -64,14 +64,10 @@ def plot_score_by_experience(df, output_dir):
 
     for idx, (col, name, color) in enumerate(methods):
         ax = axes[idx]
-
-        # Filter out Unknown
         plot_df = df[df['exp_level'] != 'Unknown']
-
-        # Box plot
         order = ['Junior (0-2y)', 'Mid (2-5y)', 'Senior (5+y)']
         sns.boxplot(data=plot_df, x='exp_level', y=col, ax=ax,
-                   order=order, palette=[color])
+                    order=order, color=color)
 
         ax.set_xlabel('Experience Level', fontweight='bold')
         ax.set_ylabel('Score', fontweight='bold')
@@ -244,35 +240,30 @@ def main():
     print("FAIRNESS & BIAS ANALYSIS")
     print("=" * 70)
 
-    # Load data
-    print("\nLoading data...")
     detailed_path = OUTPUT_DIR / "results" / "detailed_scores.csv"
-    resumes_path = PROCESSED_DIR / "resumes_parsed.parquet"
+    eval_pairs_path = ROOT / "data" / "test" / "eval_pairs.parquet"
 
     if not detailed_path.exists():
-        print(f"Error: {detailed_path} not found. Run evaluate_all.py first.")
+        print(f"detailed_scores.csv not found, run evaluate_all.py first")
+        sys.exit(1)
+    if not eval_pairs_path.exists():
+        print(f"eval_pairs.parquet not found, run scripts/build_eval_dataset.py first")
         sys.exit(1)
 
+    print("\nloading data...")
     scores_df = pd.read_csv(detailed_path)
-    resumes_df = pd.read_parquet(resumes_path)
-    print(f"  Loaded {len(scores_df):,} scored pairs")
-    print(f"  Loaded {len(resumes_df):,} resumes")
+    # grab exp years and keyword from eval pairs - no need to load full resumes parquet
+    eval_pairs = pd.read_parquet(eval_pairs_path, columns=["resume_id", "jd_id", "keyword", "resume_exp_years", "difficulty"])
+    print(f"  loaded {len(scores_df):,} scored pairs")
 
-    # Merge resume metadata
-    print("\nMerging resume metadata...")
-    resumes_df['resume_id'] = resumes_df['id'].astype(str)
-    merged = scores_df.merge(
-        resumes_df[['resume_id', 'experience_years', 'primary_keyword']],
-        on='resume_id',
-        how='left'
-    )
+    # merge to get exp years and keyword info
+    merged = scores_df.merge(eval_pairs, on=["resume_id", "jd_id"], how="left")
 
-    # Add derived columns
-    merged['exp_level'] = merged['experience_years'].apply(extract_experience_level)
-    merged['category'] = merged['primary_keyword'].apply(categorize_keyword)
+    merged['exp_level'] = merged['resume_exp_years'].apply(extract_experience_level)
+    merged['category'] = merged['keyword'].apply(categorize_keyword)
 
-    print(f"  Experience levels: {merged['exp_level'].value_counts().to_dict()}")
-    print(f"  Categories: {merged['category'].value_counts().to_dict()}")
+    print(f"  experience levels: {merged['exp_level'].value_counts().to_dict()}")
+    print(f"  categories: {merged['category'].value_counts().to_dict()}")
 
     # Create output directory
     viz_dir = OUTPUT_DIR / "visualizations"

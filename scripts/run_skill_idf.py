@@ -6,10 +6,10 @@ IDF(skill) = log((N+1) / (df+1)) + 1
 
 Usage:
     # Rank multiple resumes against one JD
-    PYTHONPATH=src python3 scripts/run_skill_idf.py --rank alice.txt bob.txt --jd job.txt
+    python3 scripts/run_skill_idf.py --rank alice.txt bob.txt --jd job.txt
 
     # Benchmark on a keyword-filtered sample
-    PYTHONPATH=src python3 scripts/run_skill_idf.py --benchmark --tag js --k 5
+    python3 scripts/run_skill_idf.py --benchmark --tag js --k 5
 """
 import sys
 import math

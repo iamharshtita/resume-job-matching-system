@@ -3,13 +3,13 @@ TF-IDF baseline scorer. Use this to compare against the multi-agent pipeline.
 
 Usage:
     # Score a single resume vs JD
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --resume resume.txt --jd job.txt
+    python3 scripts/run_tfidf_baseline.py --resume resume.txt --jd job.txt
 
     # Rank multiple resumes against one JD
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --rank alice.txt bob.txt --jd job.txt
+    python3 scripts/run_tfidf_baseline.py --rank alice.txt bob.txt --jd job.txt
 
     # Benchmark on the parsed dataset
-    PYTHONPATH=src python3 scripts/run_tfidf_baseline.py --benchmark --auto
+    python3 scripts/run_tfidf_baseline.py --benchmark --auto
 """
 import sys
 import time
@@ -65,7 +65,7 @@ def run_rank(resume_paths, jd_path, jd_id):
 def auto_pick_keywords(jds):
     top = jds["primary_keyword"].value_counts().head(3).index.tolist()
     kw, other = top[0], top[1]
-    print(f"Auto-selected: '{kw}' (relevant) vs '{other}' (irrelevant)")
+    print(f"auto-selected: '{kw}' (relevant) vs '{other}' (irrelevant)")
     return kw, other
 
 
@@ -93,6 +93,49 @@ def build_pairs(resumes, jds, keyword, other, n_jobs, n_relevant, n_irrelevant):
                 "relevance": 1 if res["primary_keyword"] == keyword else 0,
             })
     return pairs, target_jds, pool
+
+
+def run_benchmark_eval_pairs():
+    # run tfidf on the fixed eval dataset — same pairs as evaluate_all.py
+    eval_pairs_path = ROOT / "data" / "test" / "eval_pairs.parquet"
+    if not eval_pairs_path.exists():
+        print("eval_pairs.parquet not found, run scripts/build_eval_dataset.py first")
+        sys.exit(1)
+
+    pairs_df = pd.read_parquet(eval_pairs_path)
+    pairs = pairs_df.to_dict("records")
+    print(f"loaded {len(pairs):,} pairs from eval_pairs.parquet")
+
+    agent = TFIDFBaselineAgent()
+    all_texts = list({p["resume_text"] for p in pairs} | {p["jd_text"] for p in pairs})
+    agent.fit(all_texts)
+
+    t0 = time.perf_counter()
+    batch = [(p["resume_id"], p["jd_id"], p["resume_text"], p["jd_text"]) for p in pairs]
+    results = agent.score_batch(batch)
+    print(f"scored {len(pairs):,} pairs in {time.perf_counter() - t0:.2f}s")
+
+    df = pd.DataFrame(results)
+    df["relevance"] = [p["relevance"] for p in pairs]
+    df["keyword"] = [p["keyword"] for p in pairs]
+    df["difficulty"] = [p["difficulty"] for p in pairs]
+
+    # per keyword metrics
+    k = 5
+    print(f"\n{'keyword':<16} {'NDCG@5':>8} {'P@5':>8} {'Spearman':>10}")
+    print("-" * 46)
+    for kw, grp in df.groupby("keyword"):
+        m = evaluate(grp, "tfidf_score", k)
+        print("{:<16} {:>8.4f} {:>8.4f} {:>10.4f}".format(kw, m[f"ndcg@{k}"], m[f"prec@{k}"], m["spearman"]))
+
+    overall = evaluate(df, "tfidf_score", k)
+    print("-" * 46)
+    print("{:<16} {:>8.4f} {:>8.4f} {:>10.4f}".format("AVERAGE", overall[f"ndcg@{k}"], overall[f"prec@{k}"], overall["spearman"]))
+
+    out = ROOT / "outputs" / "results" / "tfidf_benchmark.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    print(f"\nsaved to {out}")
 
 
 def compute_metrics(scores, relevance, k):
@@ -166,6 +209,8 @@ def parse_args():
     p.add_argument("--jd-id",        type=str, default="jd-001")
     p.add_argument("--rank",         type=str, nargs="+", metavar="RESUME")
     p.add_argument("--benchmark",    action="store_true")
+    p.add_argument("--eval-pairs",   action="store_true",
+                   help="use fixed eval_pairs.parquet instead of sampling (for consistent metrics)")
     p.add_argument("--auto",         action="store_true")
     p.add_argument("--keyword",      type=str, default="Python")
     p.add_argument("--other",        type=str, default="Design")
@@ -179,7 +224,9 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    if args.benchmark:
+    if args.benchmark and args.eval_pairs:
+        run_benchmark_eval_pairs()
+    elif args.benchmark:
         run_benchmark(args.keyword, args.other, args.n_jobs,
                       args.n_relevant, args.n_irrelevant, args.k, args.auto)
     elif args.rank:

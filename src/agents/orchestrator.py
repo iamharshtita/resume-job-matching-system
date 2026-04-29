@@ -19,7 +19,7 @@ import re
 from typing import Dict, Any, List, Tuple
 from loguru import logger
 
-# Tokens that are not skill names (copied from resume_parser._SKILL_STOPWORDS subset)
+# words to strip when splitting compound JD skill phrases
 _PHRASE_STOPWORDS = {
     "experience", "knowledge", "understanding", "ability", "strong", "excellent",
     "proficiency", "familiarity", "working", "with", "in", "of", "and", "or",
