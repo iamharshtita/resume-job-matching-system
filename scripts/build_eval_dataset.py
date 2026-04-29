@@ -85,7 +85,54 @@ def sample_with_cycle(pool_df, n, seed):
     return pool_df.set_index("id").loc[sampled_ids].reset_index()
 
 
+def _clean_skills(skills_arr):
+    """Normalize skill strings to lowercase tokens for overlap computation."""
+    result = set()
+    for s in skills_arr:
+        s = str(s).lower().strip()
+        if len(s) >= 2:
+            result.add(s)
+            # also add individual words so multi-word skills get partial credit
+            for word in s.split():
+                if len(word) >= 3:
+                    result.add(word)
+    return result
+
+
+def _skill_overlap_ratio(resume_skills, jd_skills):
+    """Compute what fraction of JD skill tokens appear in resume skills."""
+    rs = _clean_skills(resume_skills)
+    js = _clean_skills(jd_skills)
+    if not js:
+        return 0.0
+    return len(rs & js) / len(js)
+
+
+# threshold for splitting relevant pairs into strong vs partial match
+# tuned so roughly half of same-domain pairs get grade 2
+STRONG_MATCH_THRESHOLD = 0.05
+
+
 def make_pair(keyword, jd_row, resume_row, relevance, difficulty):
+    # compute skill overlap for graded relevance
+    resume_skills = resume_row.get("raw_skills", [])
+    jd_skills = list(jd_row.get("required_skills", []))
+    if hasattr(resume_skills, "tolist"):
+        resume_skills = resume_skills.tolist()
+    if hasattr(jd_skills, "tolist"):
+        jd_skills = jd_skills.tolist()
+
+    overlap = _skill_overlap_ratio(resume_skills, jd_skills)
+
+    # graded relevance: 0=poor, 1=partial, 2=strong
+    # same domain + high overlap = 2, same domain + low overlap = 1, diff domain = 0
+    if relevance == 1 and overlap >= STRONG_MATCH_THRESHOLD:
+        graded = 2
+    elif relevance == 1:
+        graded = 1
+    else:
+        graded = 0
+
     return {
         "keyword":              keyword,
         "difficulty":           difficulty,
@@ -98,6 +145,8 @@ def make_pair(keyword, jd_row, resume_row, relevance, difficulty):
         "resume_position":      resume_row.get("position", ""),
         "resume_exp_years":     resume_row["experience_years"],
         "resume_english_level": resume_row.get("english_level", ""),
+        "skill_overlap":        round(overlap, 4),
+        "graded_relevance":     graded,
         "relevance":            relevance,
     }
 
@@ -201,9 +250,15 @@ def main():
     print(f"  Relevant:        {(df['relevance'] == 1).sum():,}")
     print(f"  Hard irrelevant: {(df['difficulty'] == 'hard').sum():,}")
     print(f"  Easy irrelevant: {(df['difficulty'] == 'easy').sum():,}")
+    print(f"\nGraded relevance distribution:")
+    print(f"  Grade 2 (strong match): {(df['graded_relevance'] == 2).sum():,}")
+    print(f"  Grade 1 (partial match): {(df['graded_relevance'] == 1).sum():,}")
+    print(f"  Grade 0 (poor match):   {(df['graded_relevance'] == 0).sum():,}")
     print(f"\nData quality:")
     print(f"  avg JD text len:     {df['jd_text'].str.len().mean():.0f} chars")
     print(f"  avg resume text len: {df['resume_text'].str.len().mean():.0f} chars")
+    print(f"  avg skill overlap (relevant): {df[df['relevance']==1]['skill_overlap'].mean():.3f}")
+    print(f"  avg skill overlap (irrelevant): {df[df['relevance']==0]['skill_overlap'].mean():.3f}")
     print(f"  JDs with exp_years:  {df['jd_exp_years'].notna().sum():,} / {len(df):,}")
     print(f"  Resumes with exp:    {df['resume_exp_years'].notna().sum():,} / {len(df):,}")
     print(f"\nSaved to: {OUT_PATH}")

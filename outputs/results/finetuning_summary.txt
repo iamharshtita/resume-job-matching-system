@@ -1,0 +1,12 @@
+EMBEDDING MODEL FINE-TUNING SUMMARY
+========================================
+base model: sentence-transformers/all-MiniLM-L6-v2
+fine-tuned model: /Users/harshtita/Desktop/Arizona State University/Data Mining- Spring26/Course Project/resume-job-matching-system/data/models/skill_embedding_model
+evaluated on: held-out test split only
+epochs: 2
+batch size: 16
+training pairs: 43,481
+base model score: 0.1062
+fine-tuned score: 0.3744
+improvement: +0.2682
+saved to: /Users/harshtita/Desktop/Arizona State University/Data Mining- Spring26/Course Project/resume-job-matching-system/data/models/skill_embedding_model

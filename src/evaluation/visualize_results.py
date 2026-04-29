@@ -128,14 +128,16 @@ def create_comparison_table(df, output_dir):
     # Prepare table
     table_data = []
     for _, row in df.iterrows():
-        table_data.append({
+        entry = {
             'Method': row['method'],
             'NDCG@5': f"{row['ndcg@5']:.4f}",
             'Precision@5': f"{row['prec@5']:.4f}",
             'Recall@5': f"{row['rec@5']:.4f}",
             'MAP': f"{row['map']:.4f}",
-            'Time(s)': f"{row['time']:.2f}"
-        })
+        }
+        if 'time' in row.index:
+            entry['Time(s)'] = f"{row['time']:.2f}"
+        table_data.append(entry)
 
     table_df = pd.DataFrame(table_data)
 
@@ -180,14 +182,30 @@ def main():
     comparison_df = pd.read_csv(comparison_path)
     print(f"  Loaded: {comparison_path}")
 
+    # Aggregate to method-level averages (comparison_results.csv is per-keyword)
+    avg_path = results_dir / "avg_comparison_results.csv"
+    if avg_path.exists():
+        avg_df = pd.read_csv(avg_path)
+        print(f"  Loaded averages: {avg_path}")
+    else:
+        # Compute averages from per-keyword results
+        avg_df = comparison_df.groupby("method").agg({
+            "ndcg@5": "mean", "prec@5": "mean", "rec@5": "mean",
+            "map": "mean", "time": "mean"
+        }).reset_index()
+        # Preserve method order
+        method_order = ["TF-IDF", "Skill-IDF", "Multi-Agent+IDF"]
+        avg_df["method"] = pd.Categorical(avg_df["method"], categories=method_order, ordered=True)
+        avg_df = avg_df.sort_values("method").reset_index(drop=True)
+
     # Generate visualizations
     print("\nGenerating visualizations...")
 
     print("\n[1/4] Metric comparison chart...")
-    plot_metric_comparison(comparison_df, viz_dir)
+    plot_metric_comparison(avg_df, viz_dir)
 
     print("\n[2/4] NDCG@5 focused chart...")
-    plot_ndcg_comparison(comparison_df, viz_dir)
+    plot_ndcg_comparison(avg_df, viz_dir)
 
     if detailed_path.exists():
         print("\n[3/4] Score distribution histograms...")
@@ -197,7 +215,7 @@ def main():
         print("\n[3/4] Skipped (detailed_scores.csv not found)")
 
     print("\n[4/4] Comparison table...")
-    create_comparison_table(comparison_df, viz_dir)
+    create_comparison_table(avg_df, viz_dir)
 
     print("\n" + "=" * 70)
     print("DONE - All visualizations generated")

@@ -1,0 +1,59 @@
+PREPROCESSING SUMMARY
+========================================
+
+RESUMES (80,992 total)
+columns: ['id', 'position', 'experience_years', 'english_level', 'raw_skills', 'experience', 'education', 'raw_text', 'primary_keyword']
+skills coverage: 30,274 / 80,992
+avg skills: 4.15
+english coverage: 80,992 / 80,992
+
+breakdown by keyword:
+  JavaScript                 22,347
+  QA                          9,069
+  Java                        7,437
+  .NET                        5,975
+  Python                      4,997
+  PHP                         4,320
+  QA Automation               4,131
+  Business Analyst            3,597
+  Node.js                     3,406
+  DevOps                      2,968
+  iOS                         2,129
+  Data Science                1,984
+  C++                         1,811
+  Data Analyst                1,654
+  Unity                       1,136
+  Golang                        914
+  Ruby                          833
+  Flutter                       756
+  SQL                           709
+  Data Engineer                 605
+  Scala                         214
+
+JOB DESCRIPTIONS (89,822 total)
+columns: ['id', 'title', 'company', 'primary_keyword', 'required_skills', 'preferred_skills', 'experience_years', 'education_requirement', 'english_level', 'raw_text']
+required skills coverage: 79,521 / 89,822
+avg required skills: 3.98
+
+breakdown by keyword:
+  JavaScript                 16,778
+  Java                        8,317
+  DevOps                      7,519
+  .NET                        7,452
+  QA Automation               6,756
+  QA                          6,327
+  Node.js                     6,031
+  Python                      5,388
+  PHP                         5,078
+  Business Analyst            3,569
+  C++                         3,523
+  iOS                         2,168
+  Data Science                2,160
+  Ruby                        1,743
+  Golang                      1,635
+  Data Engineer               1,421
+  SQL                         1,362
+  Unity                       1,026
+  Data Analyst                  728
+  Scala                         472
+  Flutter                       369

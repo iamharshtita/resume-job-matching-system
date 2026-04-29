@@ -319,6 +319,43 @@ def main():
     pd.DataFrame(avg_rows).to_csv(RESULTS_DIR / "avg_comparison_results.csv", index=False)
     print(f"macro-average saved to: {RESULTS_DIR / 'avg_comparison_results.csv'}")
 
+    # graded relevance evaluation (if graded_relevance column exists in eval pairs)
+    # this uses skill-overlap based labels instead of binary keyword matching
+    ep = pd.read_parquet(EVAL_PAIRS_PATH, columns=["resume_id", "jd_id", "graded_relevance"])
+    if "graded_relevance" in ep.columns:
+        graded_df = df.merge(ep, on=["resume_id", "jd_id"], how="left")
+        if graded_df["graded_relevance"].notna().all():
+            print("\n" + "=" * 70)
+            print(f"GRADED RELEVANCE NDCG@{args.k} (skill-overlap based labels)")
+            print("=" * 70)
+            print("  Labels: 0=poor match, 1=partial (same domain), 2=strong (same domain + skill overlap)")
+
+            graded_results = {}
+            for col, name in [("tfidf_score", "TF-IDF"), ("skill_idf_score", "Skill-IDF"), ("multi_agent_score", "Multi-Agent+IDF")]:
+                ndcgs = []
+                for _, group in graded_df.groupby("jd_id"):
+                    scores = group[col].values.astype(float)
+                    graded = group["graded_relevance"].values.astype(float)
+                    try:
+                        ndcg = ndcg_score(graded.reshape(1, -1), scores.reshape(1, -1), k=args.k)
+                        ndcgs.append(ndcg)
+                    except:
+                        pass
+                graded_results[name] = round(np.nanmean(ndcgs), 4)
+
+            print(f"\n  {'Method':<20} {'Binary NDCG':>12} {'Graded NDCG':>12} {'Difference':>12}")
+            print("  " + "-" * 58)
+            for name in ["TF-IDF", "Skill-IDF", "Multi-Agent+IDF"]:
+                binary = float(avg_rows[[r for r in range(len(avg_rows)) if avg_rows[r]["method"] == name][0]][f"ndcg@{args.k}"])
+                graded = graded_results[name]
+                diff = graded - binary
+                print(f"  {name:<20} {binary:>12.4f} {graded:>12.4f} {diff:>+12.4f}")
+
+            # save graded results
+            graded_rows = [{"method": name, f"graded_ndcg@{args.k}": val} for name, val in graded_results.items()]
+            pd.DataFrame(graded_rows).to_csv(RESULTS_DIR / "graded_relevance_results.csv", index=False)
+            print(f"\n  graded results saved to: {RESULTS_DIR / 'graded_relevance_results.csv'}")
+
 
 if __name__ == "__main__":
     main()
